@@ -142,7 +142,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.10</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.11</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -792,13 +792,19 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     renderHistory(); toast('削除しました');
   }
 
-  function applyParsedRows(rows, source='import') {
-    if (!rows.length) return toast('取り込める台データが見つかりませんでした');
-    if (isGogo()) C.setDynamicMachines(rows.map(r=>r.machine));
+  function applyParsedRows(rows, source='import', detectedMachines=null) {
+    if (!rows.length && !(isGogo() && detectedMachines?.length)) return toast('取り込める台データが見つかりませんでした');
+    if (isGogo()) {
+      // OCRでは「数値まで解決できた台」だけでなく、画像上にカード位置を確認できた台も一覧へ残す。
+      // これにより 24/24 のような誤解を招く表示を避け、24/30 のように未読台が分かる。
+      const machineList=(detectedMachines?.length ? detectedMachines : rows.map(r=>r.machine));
+      C.setDynamicMachines(machineList);
+    }
     for (const r of rows) setRow(r);
     renderEntryTable(); markUnsaved();
     const reviewCount = rows.filter(r => r.certainty === 'review' || !C.validateRow(r).valid).length;
-    toast(`${rows.length}台を反映${reviewCount ? `・${reviewCount}台要確認` : ''}`);
+    const total = isGogo() ? allCurrentMachines().length : rows.length;
+    toast(`${rows.length}/${total}台を反映${reviewCount ? `・${reviewCount}台要確認` : ''}`);
   }
 
   function cleanOcrNumber(text) {
@@ -1211,6 +1217,62 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     return {evidence:extractCardEvidence(words,d2), text:result.data.text||''};
   }
 
+  // v0.11: 未解決カードが複数ある場合は、カードごとに何十回もOCRせず、
+  // 元画像全体を約1.8倍へ拡大して「数字だけ」の第2パスを1画像1回だけ実行する。
+  // その結果を既に判明しているカード座標へ当て直すことで、小さい総G/確率/1桁RBを補強する。
+  async function retryImageNumericEvidence(worker,file,cards) {
+    if (!cards?.length) return [];
+    const img=await loadImageForPixels(file);
+    const iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height;
+    // iPhoneで重くなりすぎない範囲で、Tesseractが数字を拾いやすい幅へ拡大。
+    const scale=iw<1500 ? 1.8 : 1.25;
+    const canvas=document.createElement('canvas');
+    canvas.width=Math.round(iw*scale);
+    canvas.height=Math.round(ih*scale);
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality='high';
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);
+
+    // 軽いグレースケール＋コントラスト強調。罫線を残しつつ小さい数字を太く見せる。
+    try {
+      const im=ctx.getImageData(0,0,canvas.width,canvas.height);
+      const d=im.data;
+      for (let i=0;i<d.length;i+=4) {
+        const g=Math.round(d[i]*.299+d[i+1]*.587+d[i+2]*.114);
+        const c=Math.max(0,Math.min(255,Math.round((g-128)*1.28+128)));
+        d[i]=d[i+1]=d[i+2]=c;
+      }
+      ctx.putImageData(im,0,0);
+    } catch (_) {}
+
+    await worker.setParameters({
+      tessedit_pageseg_mode:'11',
+      tessedit_char_whitelist:'0123456789,/',
+      preserve_interword_spaces:'1',
+      user_defined_dpi:'300',
+    });
+    const result=await worker.recognize(canvas,{rotateAuto:false},{text:true,tsv:true,blocks:false});
+    await worker.setParameters({
+      tessedit_pageseg_mode:'11',
+      tessedit_char_whitelist:'',
+      preserve_interword_spaces:'1',
+      user_defined_dpi:'300',
+    });
+    const words=parseTsvWords(result.data.tsv||'');
+    const evidence=[];
+    for (const d of cards) {
+      const ds={
+        machine:d.machine,
+        xL:d.xL*scale,xR:d.xR*scale,
+        yT:d.yT*scale,yB:d.yB*scale,
+        headerInferred:d.headerInferred,
+      };
+      evidence.push(extractCardEvidence(words,ds));
+    }
+    return evidence;
+  }
+
   async function getOcrWorker() {
     if (ocrWorker) return ocrWorker;
     if (!window.Tesseract) throw new Error('OCRライブラリを読み込めません。通信を確認してください。');
@@ -1247,6 +1309,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const evidenceMap=new Map();
     const imageParses=[];
     const detectedTypes=new Set();
+    const detectedMachineSet=new Set();
     try {
       const worker=await getOcrWorker();
       for (let i=0;i<selectedFiles.length;i++) {
@@ -1264,6 +1327,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         const parsed=parseOcrEvidence(result.data.tsv||'',bandsInfo);
         // ゴージャグではここで台番レンジを補完しない。最終的な解決行だけで一覧を作る。
         imageParses.push({file:selectedFiles[i],parsed});
+        for (const d of parsed.cards) detectedMachineSet.add(Number(d.machine));
         for (const e of parsed.evidence) {
           if (!evidenceMap.has(e.machine)) evidenceMap.set(e.machine,[]);
           evidenceMap.get(e.machine).push(e);
@@ -1294,10 +1358,35 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         const row=resolveMachineEvidence(evidence);
         if (row) resolved1.set(machine,row);
       }
+      // 第2段階A: 1画像につき1回の拡大・数字専用OCR。
+      // まずこれで未解決台をまとめて救済し、それでも残った台だけカード単体再OCRへ進む。
+      for (let i=0;i<imageParses.length;i++) {
+        const ip=imageParses[i];
+        const unresolvedCards=ip.parsed.cards.filter(d=>!resolved1.has(d.machine));
+        if (!unresolvedCards.length) continue;
+        setOcrProgress(`画像 ${i+1}/${imageParses.length}・数字を再確認`,Math.min(96,70+Math.round((i+1)/imageParses.length*20)));
+        try {
+          const ev2=await retryImageNumericEvidence(worker,ip.file,unresolvedCards);
+          for (const e of ev2) {
+            if (!evidenceMap.has(e.machine)) evidenceMap.set(e.machine,[]);
+            evidenceMap.get(e.machine).push(e);
+          }
+        } catch (e) {
+          console.warn('image numeric retry failed',ip.file?.name,e);
+        }
+      }
+
+      // 拡大全体OCR後に一度解決し直す。
+      const resolved2=new Map();
+      for (const [machine,evidence] of evidenceMap.entries()) {
+        const row=resolveMachineEvidence(evidence);
+        if (row) resolved2.set(machine,row);
+      }
+
       const retryTargets=[];
       for (const ip of imageParses) {
         for (const d of ip.parsed.cards) {
-          if (!resolved1.has(d.machine)) retryTargets.push({file:ip.file,d});
+          if (!resolved2.has(d.machine)) retryTargets.push({file:ip.file,d});
         }
       }
       const seenRetry=new Set();
@@ -1323,11 +1412,13 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         if (row) rows.push(row);
       }
       rows.sort((a,b)=>a.machine-b.machine);
-      applyParsedRows(rows,'ocr');
+      const detectedMachines=[...new Set([...detectedMachineSet,...evidenceMap.keys()].map(Number).filter(Number.isFinite))].sort((a,b)=>a-b);
+      applyParsedRows(rows,'ocr',detectedMachines);
       $('ocrRawText').textContent=allText.join('\n\n');
       $('ocrReviewDialog').showModal();
       const review=rows.filter(r=>r.certainty==='review').length;
-      setOcrProgress(rows.length ? `${rows.length}台認識${review?`・${review}台要確認`:''}` : '認識0台・下のOCR結果を送ってください',100);
+      const targetCount=isGogo() ? [...detectedMachineSet].length : C.getMachines().length;
+      setOcrProgress(rows.length ? `${rows.length}/${targetCount||rows.length}台認識${review?`・${review}台要確認`:''}` : '認識0台・下のOCR結果を送ってください',100);
     } catch (err) {
       console.error(err);
       toast(`OCR失敗: ${err.message || err}`);
