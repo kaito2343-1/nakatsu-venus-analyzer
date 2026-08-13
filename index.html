@@ -142,7 +142,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.9</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.10</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -683,7 +683,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     $('machineTitle').textContent=`${p.shortName} 分析`;
     $('specHeading').textContent=`${p.name} 公表スペック`;
     if (isGogo()) {
-      $('machineModeHint').textContent='ゴージャグ3はスクショに実際に写っている台番だけを自動検出します。未掲載台は追加しません。';
+      $('machineModeHint').textContent='ゴージャグ3はスクショ内の実在台だけを検出します。OCRで台番だけ落ちた場合は、前後の実在台に挟まれた欠番だけ復元し、末尾の未掲載台は追加しません。';
       $('dataTitle').textContent='ゴージャグ3 データ';
     } else {
       $('machineModeHint').textContent='マイジャグ31台（450〜470・481〜490）を固定表示します。';
@@ -930,6 +930,36 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     return a.length%2 ? a[m] : (a[m-1]+a[m])/2;
   }
 
+  function fillAnchoredDynamicGaps(rows) {
+    // 動的機種（ゴージャグ等）は、前後で実在が確認できた範囲の欠番だけ復元する。
+    // 例: 451 ... 454 が同一スクショ内の連続スロットなら 452/453 は補完する。
+    // 最後が490なら、その先にアンカーが無い491/492は絶対に作らない。
+    const slots=[];
+    for (let i=0;i<rows.length;i++) {
+      slots.push({row:i,side:'left',value:rows[i].left});
+      slots.push({row:i,side:'right',value:rows[i].right});
+    }
+    const known=[];
+    for (let i=0;i<slots.length;i++) {
+      const m=slots[i].value?.machine;
+      if (Number.isInteger(m)) known.push({idx:i,machine:m});
+    }
+    for (let k=0;k<known.length-1;k++) {
+      const a=known[k], b=known[k+1];
+      const di=b.idx-a.idx, dm=b.machine-a.machine;
+      if (di<=1 || Math.abs(dm)!==di) continue;
+      const step=dm>0?1:-1;
+      for (let j=a.idx+1;j<b.idx;j++) {
+        if (slots[j].value) continue;
+        const machine=a.machine+step*(j-a.idx);
+        if (!C.isValidMachine(machine)) continue;
+        const target=rows[slots[j].row];
+        target[slots[j].side]={machine,_score:0,_inferred:true,_anchored:true};
+        slots[j].value=target[slots[j].side];
+      }
+    }
+  }
+
   function buildCardDescriptors(machineWords,bands,width,height) {
     const rows=bands.map(b=>({band:b,left:null,right:null}));
     for (const mw of machineWords) {
@@ -940,7 +970,8 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       if (!cur || mw._score>cur._score) rows[idx][side]=mw;
     }
 
-    // 連番補完はマイジャグ専用。ゴージャグでは未掲載台を絶対に作らない。
+    // マイジャグは既知の固定31台なので従来どおり補完。
+    // ゴージャグ等の動的機種は、前後アンカーに挟まれた欠番だけ補完する。
     if (C.getProfile().key==='myjuggler5') {
       // 片側だけ読めた行は連番関係から反対側を補う。
       for (const r of rows) {
@@ -960,6 +991,8 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
           rows[i].left={machine:pl+2,_score:0,_inferred:true}; rows[i].right={machine:pr+2,_score:0,_inferred:true};
         }
       }
+    } else {
+      fillAnchoredDynamicGaps(rows);
     }
 
     const starts=bands.map(b=>b.y0);
