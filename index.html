@@ -142,7 +142,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.12</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.13</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -879,16 +879,30 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const data=ctx.getImageData(0,0,canvas.width,canvas.height).data;
     const stepX=Math.max(6,Math.round(canvas.width/180));
     const hits=[];
+    const rowStats=[];
     for (let y=0;y<canvas.height;y++) {
-      let gray=0,total=0;
+      let gray=0,total=0,grayL=0,totalL=0,grayR=0,totalR=0;
       for (let x=0;x<canvas.width;x+=stepX) {
         const p=(y*canvas.width+x)*4;
         const r=data[p],g=data[p+1],b=data[p+2];
         const mx=Math.max(r,g,b), mn=Math.min(r,g,b);
-        if (mx-mn<18 && r>110 && r<195) gray++;
+        const isGray=(mx-mn<18 && r>110 && r<195);
+        if (isGray) gray++;
         total++;
+        if (x<canvas.width/2) {
+          if (isGray) grayL++;
+          totalL++;
+        } else {
+          if (isGray) grayR++;
+          totalR++;
+        }
       }
-      hits[y]=gray/Math.max(1,total)>.60;
+      const whole=gray/Math.max(1,total);
+      const left=grayL/Math.max(1,totalL);
+      const right=grayR/Math.max(1,totalR);
+      rowStats[y]={whole,left,right};
+      // v0.13: 530番のような「片側だけ灰色」の単独カード帯も拾う。
+      hits[y]=whole>.60 || left>.60 || right>.60;
     }
     const bands=[];
     let s=null,last=null;
@@ -898,7 +912,27 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         last=y;
       } else if (s!==null) {
         const h=last-s+1;
-        if (h>=38 && h<=115) bands.push({y0:s,y1:last});
+        if (h>=38 && h<=115) {
+          let sw=0,sl=0,sr=0,n=0;
+          for (let yy=s;yy<=last;yy++) {
+            sw+=rowStats[yy]?.whole||0;
+            sl+=rowStats[yy]?.left||0;
+            sr+=rowStats[yy]?.right||0;
+            n++;
+          }
+          const avgWhole=sw/Math.max(1,n);
+          const avgLeft=sl/Math.max(1,n);
+          const avgRight=sr/Math.max(1,n);
+          bands.push({
+            y0:s,y1:last,
+            fullGray:avgWhole>.60,
+            leftGray:avgLeft>.60,
+            rightGray:avgRight>.60,
+            grayWhole:avgWhole,
+            grayLeft:avgLeft,
+            grayRight:avgRight,
+          });
+        }
         s=last=null;
       }
     }
@@ -1019,19 +1053,93 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
     } else {
-      // v0.12: 動的機種でも「実際に存在する灰色カード行」の中だけは連番復元する。
-      // これで最下段の469/470・488〜490を拾いつつ、「ご注意」を491/492にはしない。
+      // v0.13:
+      // ・501番のような「戻る」付き横長1台をfull-widthとして扱う
+      // ・530番のような片側だけ灰色の単独台をその片側だけで扱う
+      // ・実在する灰色カード行の中だけ欠番復元する
       fillAnchoredDynamicGaps(rows);
+
+      const bandHasBack=(band)=>allWords.some(w=>
+        /戻/.test(w.raw||'') && w.cy>=band.y0-10 && w.cy<=band.y1+10
+      );
+      const nextLeftMachine=(idx)=>{
+        for (let j=idx+1;j<rows.length;j++) {
+          const m=rows[j].left?.machine;
+          if (Number.isInteger(m)) return m;
+          if (rows[j].left || rows[j].right) break;
+        }
+        return null;
+      };
+      const prevRightMachine=(idx)=>{
+        for (let j=idx-1;j>=0;j--) {
+          const m=rows[j].right?.machine;
+          if (Number.isInteger(m)) return m;
+          if (rows[j].left || rows[j].right) break;
+        }
+        return null;
+      };
+
       for (let i=0;i<rows.length;i++) {
         const hasBody=bodyLooksLikeMachineRow(allWords,bands,i,width,height,pitch);
         if (!hasBody) continue;
-        const l=rows[i].left?.machine ?? null, rr=rows[i].right?.machine ?? null;
-        // 同じ灰色ヘッダー行の片側だけ読めた場合、反対側は必ず隣台。
-        if (l && !rr && C.isValidMachine(l+1)) rows[i].right={machine:l+1,_score:0,_inferred:true,_visualRow:true};
-        if (rr && !l && C.isValidMachine(rr-1)) rows[i].left={machine:rr-1,_score:0,_inferred:true,_visualRow:true};
 
-        // ヘッダー文字を左右とも落としても、直前の実データ行が連番なら次の2台を復元。
-        if (!rows[i].left && !rows[i].right && i>0) {
+        const band=rows[i].band;
+        let l=rows[i].left?.machine ?? null;
+        let rr=rows[i].right?.machine ?? null;
+        const hasBack=bandHasBack(band);
+
+        // ページ先頭の横長1台（例:501）。
+        if (band.fullGray && hasBack && (l || rr) && !(l && rr)) {
+          rows[i]._singleFull=true;
+          if (!l && rr) {
+            rows[i].left=rows[i].right;
+            rows[i].right=null;
+          }
+          continue;
+        }
+
+        // 片側だけ灰色の単独カード（例:530）。
+        if (band.leftGray && !band.rightGray) {
+          rows[i]._singleLeft=true;
+          if (!l && i>0) {
+            const p=rows[i-1];
+            const pl=p.left?.machine, pr=p.right?.machine;
+            if (Number.isInteger(pl) && Number.isInteger(pr) && pr===pl+1 && C.isValidMachine(pr+1)) {
+              rows[i].left={machine:pr+1,_score:0,_inferred:true,_visualRow:true};
+            }
+          }
+          rows[i].right=null;
+          continue;
+        }
+        if (band.rightGray && !band.leftGray) {
+          rows[i]._singleRight=true;
+          rows[i].left=null;
+          continue;
+        }
+
+        // 通常の左右2台行。片側を落とした時は前後アンカーを優先する。
+        if (l && !rr) {
+          const nl=nextLeftMachine(i);
+          if (Number.isInteger(nl) && nl>l && C.isValidMachine(nl-1)) {
+            rows[i].right={machine:nl-1,_score:0,_inferred:true,_visualRow:true};
+          } else if (C.isValidMachine(l+1)) {
+            rows[i].right={machine:l+1,_score:0,_inferred:true,_visualRow:true};
+          }
+        }
+        if (rr && !l) {
+          const pr=prevRightMachine(i);
+          if (Number.isInteger(pr) && rr>pr && C.isValidMachine(pr+1)) {
+            rows[i].left={machine:pr+1,_score:0,_inferred:true,_visualRow:true};
+          } else if (C.isValidMachine(rr-1)) {
+            rows[i].left={machine:rr-1,_score:0,_inferred:true,_visualRow:true};
+          }
+        }
+
+        l=rows[i].left?.machine ?? null;
+        rr=rows[i].right?.machine ?? null;
+
+        // 行そのものは実在し、直前が連番2台なら次の2台だけ視覚補完。
+        if (!l && !rr && i>0 && band.fullGray) {
           const p=rows[i-1];
           const pl=p.left?.machine, pr=p.right?.machine;
           if (Number.isInteger(pl) && Number.isInteger(pr) && pr===pl+1 &&
@@ -1049,12 +1157,27 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       const lm=r.left?.machine, rm=r.right?.machine;
       if (!lm && !rm) continue;
       const nextY=(i+1<bands.length && bands[i+1].y0-bands[i].y0<450) ? bands[i+1].y0 : Math.min(height,bands[i].y0+pitch);
+
       if (C.getProfile().key==='myjuggler5' && lm===450 && !rm) {
-        cards.push({machine:450,xL:0,xR:width,yT:r.band.y1,yB:nextY,headerInferred:!!r.left?._inferred});
-      } else {
-        if (lm && C.isValidMachine(lm)) cards.push({machine:lm,xL:0,xR:width/2,yT:r.band.y1,yB:nextY,headerInferred:!!r.left?._inferred});
-        if (rm && C.isValidMachine(rm)) cards.push({machine:rm,xL:width/2,xR:width,yT:r.band.y1,yB:nextY,headerInferred:!!r.right?._inferred});
+        cards.push({machine:450,xL:0,xR:width,yT:r.band.y1,yB:nextY,headerInferred:!!r.left?._inferred,singleCard:true});
+        continue;
       }
+
+      if (C.getProfile().key!=='myjuggler5' && r._singleFull && lm) {
+        cards.push({machine:lm,xL:0,xR:width,yT:r.band.y1,yB:nextY,headerInferred:!!r.left?._inferred,singleCard:true});
+        continue;
+      }
+      if (C.getProfile().key!=='myjuggler5' && r._singleLeft && lm) {
+        cards.push({machine:lm,xL:0,xR:width/2,yT:r.band.y1,yB:nextY,headerInferred:!!r.left?._inferred,singleCard:true});
+        continue;
+      }
+      if (C.getProfile().key!=='myjuggler5' && r._singleRight && rm) {
+        cards.push({machine:rm,xL:width/2,xR:width,yT:r.band.y1,yB:nextY,headerInferred:!!r.right?._inferred,singleCard:true});
+        continue;
+      }
+
+      if (lm && C.isValidMachine(lm)) cards.push({machine:lm,xL:0,xR:width/2,yT:r.band.y1,yB:nextY,headerInferred:!!r.left?._inferred});
+      if (rm && C.isValidMachine(rm)) cards.push({machine:rm,xL:width/2,xR:width,yT:r.band.y1,yB:nextY,headerInferred:!!r.right?._inferred});
     }
     return cards;
   }
