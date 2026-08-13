@@ -142,7 +142,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.11</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.12</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -966,7 +966,24 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     }
   }
 
-  function buildCardDescriptors(machineWords,bands,width,height) {
+  function bodyLooksLikeMachineRow(words,bands,i,width,height,pitch) {
+    const b=bands[i];
+    if (!b) return false;
+    const nextY=(i+1<bands.length && bands[i+1].y0-b.y0<450)
+      ? bands[i+1].y0
+      : Math.min(height,b.y0+pitch);
+    const y0=b.y1+2;
+    const y1=Math.min(nextY, b.y1+Math.max(120,(nextY-b.y1)*.82));
+    const body=words.filter(w=>w.cy>=y0 && w.cy<y1);
+    // 実データカードなら、BB/RB/総スタート/確率由来の数字が複数存在する。
+    // 「ご注意」欄やcopyrightは数字がほぼ無いのでここで除外できる。
+    const rates=body.reduce((n,w)=>n+(w.rateDens?.length||0),0);
+    const medium=body.filter(w=>w.digits && !w.rateDens?.length && Number(w.digits)>=1 && Number(w.digits)<=20000).length;
+    const large=body.filter(w=>w.digits && Number(w.digits)>=100 && Number(w.digits)<=20000).length;
+    return rates>=1 || large>=2 || medium>=5;
+  }
+
+  function buildCardDescriptors(machineWords,bands,width,height,allWords=[]) {
     const rows=bands.map(b=>({band:b,left:null,right:null}));
     for (const mw of machineWords) {
       const idx=bands.findIndex(b=>mw.cy>=b.y0-7 && mw.cy<=b.y1+7);
@@ -976,17 +993,21 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       if (!cur || mw._score>cur._score) rows[idx][side]=mw;
     }
 
+    const starts=bands.map(b=>b.y0);
+    const diffs=[];
+    for (let i=0;i<starts.length-1;i++) {
+      const d=starts[i+1]-starts[i]; if (d>=220 && d<=430) diffs.push(d);
+    }
+    const pitch=Math.round(median(diffs)||298);
+
     // マイジャグは既知の固定31台なので従来どおり補完。
-    // ゴージャグ等の動的機種は、前後アンカーに挟まれた欠番だけ補完する。
     if (C.getProfile().key==='myjuggler5') {
-      // 片側だけ読めた行は連番関係から反対側を補う。
       for (const r of rows) {
         const l=r.left?.machine ?? null, rr=r.right?.machine ?? null;
         if (l===450) { r.right=null; continue; }
         if (l && !rr && C.isValidMachine(l+1)) r.right={machine:l+1,_score:0,_inferred:true};
         if (rr && !l && C.isValidMachine(rr-1)) r.left={machine:rr-1,_score:0,_inferred:true};
       }
-      // 行そのものを落とした場合も、前後の連続行から復元。
       for (let i=1;i<rows.length;i++) {
         if (rows[i].left || rows[i].right) continue;
         const p=rows[i-1];
@@ -998,20 +1019,35 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
     } else {
+      // v0.12: 動的機種でも「実際に存在する灰色カード行」の中だけは連番復元する。
+      // これで最下段の469/470・488〜490を拾いつつ、「ご注意」を491/492にはしない。
       fillAnchoredDynamicGaps(rows);
+      for (let i=0;i<rows.length;i++) {
+        const hasBody=bodyLooksLikeMachineRow(allWords,bands,i,width,height,pitch);
+        if (!hasBody) continue;
+        const l=rows[i].left?.machine ?? null, rr=rows[i].right?.machine ?? null;
+        // 同じ灰色ヘッダー行の片側だけ読めた場合、反対側は必ず隣台。
+        if (l && !rr && C.isValidMachine(l+1)) rows[i].right={machine:l+1,_score:0,_inferred:true,_visualRow:true};
+        if (rr && !l && C.isValidMachine(rr-1)) rows[i].left={machine:rr-1,_score:0,_inferred:true,_visualRow:true};
+
+        // ヘッダー文字を左右とも落としても、直前の実データ行が連番なら次の2台を復元。
+        if (!rows[i].left && !rows[i].right && i>0) {
+          const p=rows[i-1];
+          const pl=p.left?.machine, pr=p.right?.machine;
+          if (Number.isInteger(pl) && Number.isInteger(pr) && pr===pl+1 &&
+              C.isValidMachine(pl+2) && C.isValidMachine(pr+2)) {
+            rows[i].left={machine:pl+2,_score:0,_inferred:true,_visualRow:true};
+            rows[i].right={machine:pr+2,_score:0,_inferred:true,_visualRow:true};
+          }
+        }
+      }
     }
 
-    const starts=bands.map(b=>b.y0);
-    const diffs=[];
-    for (let i=0;i<starts.length-1;i++) {
-      const d=starts[i+1]-starts[i]; if (d>=220 && d<=430) diffs.push(d);
-    }
-    const pitch=Math.round(median(diffs)||298);
     const cards=[];
     for (let i=0;i<rows.length;i++) {
       const r=rows[i];
       const lm=r.left?.machine, rm=r.right?.machine;
-      if (!lm && !rm) continue; // 注意欄など
+      if (!lm && !rm) continue;
       const nextY=(i+1<bands.length && bands[i+1].y0-bands[i].y0<450) ? bands[i+1].y0 : Math.min(height,bands[i].y0+pitch);
       if (C.getProfile().key==='myjuggler5' && lm===450 && !rm) {
         cards.push({machine:450,xL:0,xR:width,yT:r.band.y1,yB:nextY,headerInferred:!!r.left?._inferred});
@@ -1177,7 +1213,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
   function parseOcrEvidence(tsv,bandsInfo) {
     const words=parseTsvWords(tsv);
     const machineWords=chooseMachineWords(words,bandsInfo.bands,bandsInfo.width);
-    const cards=buildCardDescriptors(machineWords,bandsInfo.bands,bandsInfo.width,bandsInfo.height);
+    const cards=buildCardDescriptors(machineWords,bandsInfo.bands,bandsInfo.width,bandsInfo.height,words);
     const evidence=cards.map(d=>extractCardEvidence(words,d));
     return {words,machineWords,cards,evidence};
   }
