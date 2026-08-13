@@ -142,7 +142,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.14</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.15</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -891,7 +891,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       const left=grayL/Math.max(1,totalL);
       const right=grayR/Math.max(1,totalR);
       rowStats[y]={whole,left,right};
-      // v0.14: 530番のような「片側だけ灰色」の単独カード帯も拾う。
+      // v0.15: 530番のような「片側だけ灰色」の単独カード帯も拾う。
       hits[y]=whole>.60 || left>.60 || right>.60;
     }
     const bands=[];
@@ -1024,8 +1024,9 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     }
     const pitch=Math.round(median(diffs)||298);
 
-    // マイジャグは既知の固定31台なので従来どおり補完。
-    if (C.getProfile().key==='myjuggler5') {
+    // 固定台番プロファイルだけ旧来の固定補完を使う。
+    // v0.15: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
+    if (C.getProfile().fixedMachines) {
       for (const r of rows) {
         const l=r.left?.machine ?? null, rr=r.right?.machine ?? null;
         if (l===450) { r.right=null; continue; }
@@ -1043,7 +1044,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
     } else {
-      // v0.14:
+      // v0.15:
       // ・501番のような「戻る」付き横長1台をfull-widthとして扱う
       // ・530番のような片側だけ灰色の単独台をその片側だけで扱う
       // ・実在する灰色カード行の中だけ欠番復元する
@@ -1148,20 +1149,20 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       if (!lm && !rm) continue;
       const nextY=(i+1<bands.length && bands[i+1].y0-bands[i].y0<450) ? bands[i+1].y0 : Math.min(height,bands[i].y0+pitch);
 
-      if (C.getProfile().key==='myjuggler5' && lm===450 && !rm) {
+      if (C.getProfile().fixedMachines && lm===450 && !rm) {
         cards.push({machine:450,xL:0,xR:width,yT:r.band.y1,yB:nextY,headerInferred:!!r.left?._inferred,singleCard:true});
         continue;
       }
 
-      if (C.getProfile().key!=='myjuggler5' && r._singleFull && lm) {
+      if (!C.getProfile().fixedMachines && r._singleFull && lm) {
         cards.push({machine:lm,xL:0,xR:width,yT:r.band.y1,yB:nextY,headerInferred:!!r.left?._inferred,singleCard:true});
         continue;
       }
-      if (C.getProfile().key!=='myjuggler5' && r._singleLeft && lm) {
+      if (!C.getProfile().fixedMachines && r._singleLeft && lm) {
         cards.push({machine:lm,xL:0,xR:width/2,yT:r.band.y1,yB:nextY,headerInferred:!!r.left?._inferred,singleCard:true});
         continue;
       }
-      if (C.getProfile().key!=='myjuggler5' && r._singleRight && rm) {
+      if (!C.getProfile().fixedMachines && r._singleRight && rm) {
         cards.push({machine:rm,xL:width/2,xR:width,yT:r.band.y1,yB:nextY,headerInferred:!!r.right?._inferred,singleCard:true});
         continue;
       }
@@ -1566,7 +1567,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       $('ocrRawText').textContent=allText.join('\n\n');
       $('ocrReviewDialog').showModal();
       const review=rows.filter(r=>r.certainty==='review').length;
-      const targetCount=isGogo() ? [...detectedMachineSet].length : C.getMachines().length;
+      const targetCount=isDynamicMachineMode() ? [...detectedMachineSet].length : C.getMachines().length;
       setOcrProgress(rows.length ? `${rows.length}/${targetCount||rows.length}台認識${review?`・${review}台要確認`:''}` : '認識0台・下のOCR結果を送ってください',100);
     } catch (err) {
       console.error(err);
