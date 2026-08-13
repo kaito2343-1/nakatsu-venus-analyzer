@@ -142,7 +142,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.8</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.9</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -668,10 +668,9 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
   function isGogo() { return appSettings.machineType === 'gogo3'; }
   function syncDynamicMachinesFromStore(extra=[]) {
     if (!isGogo()) return;
-    const store=loadStore();
-    const ms=[...extra];
-    for (const rows of Object.values(store.days || {})) for (const r of rows || []) ms.push(Number(r.machine));
-    C.setDynamicMachines(ms);
+    // ゴージャグは「その日/そのOCRで実際に存在した台番」だけ表示する。
+    // 過去日に存在した台番や推測した連番を現在日の表へ持ち込まない。
+    C.setDynamicMachines(extra);
   }
   function allCurrentMachines() {
     const ms=new Set(C.MACHINES);
@@ -684,7 +683,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     $('machineTitle').textContent=`${p.shortName} 分析`;
     $('specHeading').textContent=`${p.name} 公表スペック`;
     if (isGogo()) {
-      $('machineModeHint').textContent='ゴージャグ3はスクショから台番を自動検出します。初回は表が空でもそのままOCRしてください。';
+      $('machineModeHint').textContent='ゴージャグ3はスクショに実際に写っている台番だけを自動検出します。未掲載台は追加しません。';
       $('dataTitle').textContent='ゴージャグ3 データ';
     } else {
       $('machineModeHint').textContent='マイジャグ31台（450〜470・481〜490）を固定表示します。';
@@ -795,7 +794,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 
   function applyParsedRows(rows, source='import') {
     if (!rows.length) return toast('取り込める台データが見つかりませんでした');
-    if (isGogo()) C.setDynamicMachines([...C.MACHINES, ...rows.map(r=>r.machine)]);
+    if (isGogo()) C.setDynamicMachines(rows.map(r=>r.machine));
     for (const r of rows) setRow(r);
     renderEntryTable(); markUnsaved();
     const reviewCount = rows.filter(r => r.certainty === 'review' || !C.validateRow(r).valid).length;
@@ -941,22 +940,25 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       if (!cur || mw._score>cur._score) rows[idx][side]=mw;
     }
 
-    // 片側だけ読めた行は連番関係から反対側を補う。
-    for (const r of rows) {
-      const l=r.left?.machine ?? null, rr=r.right?.machine ?? null;
-      if (C.getProfile().key==='myjuggler5' && l===450) { r.right=null; continue; }
-      if (l && !rr && C.isValidMachine(l+1)) r.right={machine:l+1,_score:0,_inferred:true};
-      if (rr && !l && C.isValidMachine(rr-1)) r.left={machine:rr-1,_score:0,_inferred:true};
-    }
-    // 行そのものを落とした場合も、前後の連続行から復元。
-    for (let i=1;i<rows.length;i++) {
-      if (rows[i].left || rows[i].right) continue;
-      const p=rows[i-1];
-      const pl=p.left?.machine, pr=p.right?.machine;
-      if (C.getProfile().key==='myjuggler5' && pl===450 && C.isValidMachine(451) && C.isValidMachine(452)) {
-        rows[i].left={machine:451,_score:0,_inferred:true}; rows[i].right={machine:452,_score:0,_inferred:true};
-      } else if (pl && pr && C.isValidMachine(pl+2) && C.isValidMachine(pr+2)) {
-        rows[i].left={machine:pl+2,_score:0,_inferred:true}; rows[i].right={machine:pr+2,_score:0,_inferred:true};
+    // 連番補完はマイジャグ専用。ゴージャグでは未掲載台を絶対に作らない。
+    if (C.getProfile().key==='myjuggler5') {
+      // 片側だけ読めた行は連番関係から反対側を補う。
+      for (const r of rows) {
+        const l=r.left?.machine ?? null, rr=r.right?.machine ?? null;
+        if (l===450) { r.right=null; continue; }
+        if (l && !rr && C.isValidMachine(l+1)) r.right={machine:l+1,_score:0,_inferred:true};
+        if (rr && !l && C.isValidMachine(rr-1)) r.left={machine:rr-1,_score:0,_inferred:true};
+      }
+      // 行そのものを落とした場合も、前後の連続行から復元。
+      for (let i=1;i<rows.length;i++) {
+        if (rows[i].left || rows[i].right) continue;
+        const p=rows[i-1];
+        const pl=p.left?.machine, pr=p.right?.machine;
+        if (pl===450 && C.isValidMachine(451) && C.isValidMachine(452)) {
+          rows[i].left={machine:451,_score:0,_inferred:true}; rows[i].right={machine:452,_score:0,_inferred:true};
+        } else if (pl && pr && C.isValidMachine(pl+2) && C.isValidMachine(pr+2)) {
+          rows[i].left={machine:pl+2,_score:0,_inferred:true}; rows[i].right={machine:pr+2,_score:0,_inferred:true};
+        }
       }
     }
 
@@ -1197,6 +1199,13 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     return ocrWorker;
   }
 
+  function detectedMachineTypeFromText(text) {
+    const t=String(text||'').replace(/\s+/g,'');
+    if (/マイジャグラー[VＶ5５]/i.test(t) || /マイジャグV/i.test(t)) return 'myjuggler5';
+    if (/ゴーゴージャグラー3/i.test(t) || /ゴージャグ3/i.test(t)) return 'gogo3';
+    return null;
+  }
+
   async function runOcr() {
     if (!selectedFiles.length) return;
     $('runOcrBtn').disabled = true;
@@ -1204,6 +1213,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const allText=[];
     const evidenceMap=new Map();
     const imageParses=[];
+    const detectedTypes=new Set();
     try {
       const worker=await getOcrWorker();
       for (let i=0;i<selectedFiles.length;i++) {
@@ -1216,8 +1226,10 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
           {text:true,tsv:true,blocks:false}
         );
         const text=result.data.text||'';
+        const detectedType=detectedMachineTypeFromText(text);
+        if (detectedType) detectedTypes.add(detectedType);
         const parsed=parseOcrEvidence(result.data.tsv||'',bandsInfo);
-        if (isGogo()) C.setDynamicMachines([...C.MACHINES, ...parsed.cards.map(x=>x.machine)]);
+        // ゴージャグではここで台番レンジを補完しない。最終的な解決行だけで一覧を作る。
         imageParses.push({file:selectedFiles[i],parsed});
         for (const e of parsed.evidence) {
           if (!evidenceMap.has(e.machine)) evidenceMap.set(e.machine,[]);
@@ -1226,6 +1238,21 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         allText.push(`--- ${selectedFiles[i].name} ---`);
         allText.push(`灰色ヘッダー:${bandsInfo.bands.length} / 機番:${parsed.cards.map(x=>x.machine).join(',')||'なし'}`);
         allText.push(text);
+      }
+
+      // 画像内に機種名が明記されている場合は、選択中の機種との混在・取り違えを防ぐ。
+      if (detectedTypes.size > 1) {
+        currentRows=new Map();
+        if (isGogo()) C.setDynamicMachines([]);
+        renderEntryTable();
+        throw new Error('マイジャグとゴージャグの画像が混在しています。機種ごとに分けて読み込んでください。');
+      }
+      if (detectedTypes.size === 1 && !detectedTypes.has(appSettings.machineType)) {
+        const found=[...detectedTypes][0] === 'myjuggler5' ? 'マイジャグラーV' : 'ゴーゴージャグラー3';
+        currentRows=new Map();
+        if (isGogo()) C.setDynamicMachines([]);
+        renderEntryTable();
+        throw new Error(`${found} の画像を検出しました。上の機種選択を合わせてください。`);
       }
 
       // 第1段階の結果を確認し、カード自体は見つかっているのに数値解決できない台のみ再OCR。
