@@ -142,7 +142,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.13</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.14</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -379,15 +379,8 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       key: 'myjuggler5',
       name: 'マイジャグラーV',
       shortName: 'マイジャグV',
-      fixedMachines: [
-        ...Array.from({ length: 21 }, (_, i) => 450 + i),
-        ...Array.from({ length: 10 }, (_, i) => 481 + i),
-      ],
-      areas: [
-        { name: '増台 450〜460', machines: Array.from({ length: 11 }, (_, i) => 450 + i) },
-        { name: '既存① 461〜470', machines: Array.from({ length: 10 }, (_, i) => 461 + i) },
-        { name: '既存② 481〜490', machines: Array.from({ length: 10 }, (_, i) => 481 + i) },
-      ],
+      fixedMachines: null,
+      areas: null,
       // 北電子 マイジャグラーV 公表値
       specs: [
         { setting: 1, bb: 273.1, rb: 409.6, combined: 163.8, payout: 97.0 },
@@ -666,10 +659,9 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
   function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(appSettings)); }
   function getPriors() { return appSettings.priorPreset === 'custom' ? appSettings.priors : [1,1,1,1,1,1]; }
   function isGogo() { return appSettings.machineType === 'gogo3'; }
+  function isDynamicMachineMode() { return !C.getProfile().fixedMachines; }
   function syncDynamicMachinesFromStore(extra=[]) {
-    if (!isGogo()) return;
-    // ゴージャグは「その日/そのOCRで実際に存在した台番」だけ表示する。
-    // 過去日に存在した台番や推測した連番を現在日の表へ持ち込まない。
+    if (!isDynamicMachineMode()) return;
     C.setDynamicMachines(extra);
   }
   function allCurrentMachines() {
@@ -686,15 +678,15 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       $('machineModeHint').textContent='ゴージャグ3はスクショ内の実在台だけを検出します。OCRで台番だけ落ちた場合は、前後の実在台に挟まれた欠番だけ復元し、末尾の未掲載台は追加しません。';
       $('dataTitle').textContent='ゴージャグ3 データ';
     } else {
-      $('machineModeHint').textContent='マイジャグ31台（450〜470・481〜490）を固定表示します。';
-      $('dataTitle').textContent='31台データ';
+      $('machineModeHint').textContent='マイジャグVもスクショ内の実在台だけを自動認識します。増台や台番変更があっても、固定31台ではなく画像に写っている台番を表示します。';
+      $('dataTitle').textContent='マイジャグV データ';
     }
   }
   function setMachineType(type) {
     appSettings.machineType = type === 'gogo3' ? 'gogo3' : 'myjuggler5';
     saveSettings();
     C.setProfile(appSettings.machineType);
-    if (isGogo()) syncDynamicMachinesFromStore(); else C.setDynamicMachines([]);
+    if (isDynamicMachineMode()) syncDynamicMachinesFromStore(); else C.setDynamicMachines([]);
     currentRows=new Map();
     selectedFiles=[];
     renderSelectedPreviews();
@@ -718,7 +710,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     currentRows = new Map();
     const store = loadStore();
     const rows = store.days[date] || [];
-    if (isGogo()) syncDynamicMachinesFromStore(rows.map(r=>r.machine));
+    if (isDynamicMachineMode()) syncDynamicMachinesFromStore(rows.map(r=>r.machine));
     for (const r of rows) setRow(r);
     renderEntryTable();
     if (rows.length) markSaved(); else markUnsaved();
@@ -731,7 +723,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     let entered = 0;
     const machines=allCurrentMachines();
     if (!machines.length) {
-      body.innerHTML='<tr><td colspan="6" class="dynamic-empty">スクショを選んで「OCRして反映」を押すと、ゴージャグ3の台番を自動で追加します。</td></tr>';
+      body.innerHTML='<tr><td colspan="6" class="dynamic-empty">スクショを選んで「OCRして反映」を押すと、台番を自動で追加します。</td></tr>';
       $('rowCountText').textContent='0台・スクショ待ち';
       return;
     }
@@ -793,17 +785,15 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
   }
 
   function applyParsedRows(rows, source='import', detectedMachines=null) {
-    if (!rows.length && !(isGogo() && detectedMachines?.length)) return toast('取り込める台データが見つかりませんでした');
-    if (isGogo()) {
-      // OCRでは「数値まで解決できた台」だけでなく、画像上にカード位置を確認できた台も一覧へ残す。
-      // これにより 24/24 のような誤解を招く表示を避け、24/30 のように未読台が分かる。
+    if (!rows.length && !(isDynamicMachineMode() && detectedMachines?.length)) return toast('取り込める台データが見つかりませんでした');
+    if (isDynamicMachineMode()) {
       const machineList=(detectedMachines?.length ? detectedMachines : rows.map(r=>r.machine));
       C.setDynamicMachines(machineList);
     }
     for (const r of rows) setRow(r);
     renderEntryTable(); markUnsaved();
     const reviewCount = rows.filter(r => r.certainty === 'review' || !C.validateRow(r).valid).length;
-    const total = isGogo() ? allCurrentMachines().length : rows.length;
+    const total = isDynamicMachineMode() ? allCurrentMachines().length : rows.length;
     toast(`${rows.length}/${total}台を反映${reviewCount ? `・${reviewCount}台要確認` : ''}`);
   }
 
@@ -901,7 +891,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       const left=grayL/Math.max(1,totalL);
       const right=grayR/Math.max(1,totalR);
       rowStats[y]={whole,left,right};
-      // v0.13: 530番のような「片側だけ灰色」の単独カード帯も拾う。
+      // v0.14: 530番のような「片側だけ灰色」の単独カード帯も拾う。
       hits[y]=whole>.60 || left>.60 || right>.60;
     }
     const bands=[];
@@ -1053,7 +1043,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
     } else {
-      // v0.13:
+      // v0.14:
       // ・501番のような「戻る」付き横長1台をfull-widthとして扱う
       // ・530番のような片側だけ灰色の単独台をその片側だけで扱う
       // ・実在する灰色カード行の中だけ欠番復元する
@@ -1662,7 +1652,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 
   function renderHistory() {
     const store = loadStore();
-    if (isGogo()) syncDynamicMachinesFromStore();
+    if (isDynamicMachineMode()) syncDynamicMachinesFromStore();
     initMachineSelect();
     const dates = Object.keys(store.days).sort().reverse();
     const priors = getPriors();
@@ -1796,7 +1786,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 
   function init() {
     $('dateInput').value=todayLocal();
-    if (isGogo()) syncDynamicMachinesFromStore();
+    if (isDynamicMachineMode()) syncDynamicMachinesFromStore();
     updateMachineUi(); initMachineSelect(); renderSpec(); renderSettings(); bindEvents(); loadDay($('dateInput').value); renderHistory(); renderSelectedPreviews(); registerSW();
   }
   init();
