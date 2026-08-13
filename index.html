@@ -120,6 +120,13 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 .machine-picker { display:grid; grid-template-columns:auto 1fr; gap:10px; align-items:center; }
 .machine-picker label { font-weight:800; }
 .machine-picker .mode-hint { grid-column:1 / -1; color:var(--muted); font-size:11px; line-height:1.5; }
+.cloud-grid { display:grid; gap:10px; }
+.cloud-grid .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.cloud-status { padding:10px 12px; border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.03); font-size:12px; line-height:1.55; word-break:break-all; }
+.cloud-status strong { display:block; margin-bottom:3px; }
+.cloud-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.cloud-warning { color:var(--warn); font-size:11px; line-height:1.5; }
+@media (max-width:520px){ .cloud-grid .two,.cloud-actions{grid-template-columns:1fr;} }
 .preview-gallery { display:flex; gap:10px; overflow-x:auto; padding:10px 0 2px; scroll-snap-type:x proximity; -webkit-overflow-scrolling:touch; }
 .preview-gallery:empty { display:none; }
 .preview-card { position:relative; flex:0 0 145px; padding:0; border:1px solid var(--line); border-radius:14px; overflow:hidden; background:#0b111a; color:var(--text); scroll-snap-align:start; }
@@ -142,7 +149,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.16</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.17</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -302,6 +309,32 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         </label>
         <div id="customPriors" class="prior-grid hidden"></div>
         <p class="hint">判別の初期値は「均等」です。店の配分を強く仮定すると結果が偏るため、まずは均等推奨。</p>
+      </section>
+
+      <section class="panel">
+        <h2>オンライン同期（GitHub）</h2>
+        <p class="hint">保存した全履歴を公開リポジトリの <b>data/history.json</b> に同期します。同期後はこのサイトURLから履歴を参照できるようになります。</p>
+        <div class="cloud-grid">
+          <div class="two">
+            <label class="field"><span>GitHubユーザー</span><input id="ghOwner" type="text" autocomplete="off"></label>
+            <label class="field"><span>リポジトリ</span><input id="ghRepo" type="text" autocomplete="off"></label>
+          </div>
+          <div class="two">
+            <label class="field"><span>ブランチ</span><input id="ghBranch" type="text" autocomplete="off"></label>
+            <label class="field"><span>保存先</span><input id="ghPath" type="text" autocomplete="off"></label>
+          </div>
+          <label class="field"><span>Fine-grained GitHub Token</span><input id="ghToken" type="password" autocomplete="off" placeholder="github_pat_..."></label>
+          <label class="checkbox-row"><input id="ghRememberToken" type="checkbox"> この端末にトークンを保存する</label>
+          <label class="checkbox-row"><input id="ghAutoSync" type="checkbox"> 日別データ保存時に自動同期する</label>
+          <div class="cloud-actions">
+            <button id="ghTestBtn" class="secondary">接続テスト</button>
+            <button id="ghSyncBtn" class="primary">今すぐクラウド同期</button>
+            <button id="ghRestoreBtn" class="secondary">クラウドから復元</button>
+            <button id="ghCopyUrlBtn" class="secondary">公開履歴URLをコピー</button>
+          </div>
+          <div id="ghStatus" class="cloud-status"><strong>未設定</strong>GitHub Tokenを入力して接続テストしてください。</div>
+          <div class="cloud-warning">トークンはこのリポジトリだけに限定し、Repository permissions は Contents: Read and write のみにしてください。「端末に保存」をOFFにした場合、トークンは現在のブラウザセッションだけ保持します。</div>
+        </div>
       </section>
 
       <section class="panel">
@@ -630,6 +663,8 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
   const MY_STORAGE_KEY = 'nakatsu_venus_juggler_v1';
   const GOGO_STORAGE_KEY = 'nakatsu_venus_gogo3_v1';
   const SETTINGS_KEY = 'nakatsu_venus_juggler_settings_v1';
+  const GITHUB_SYNC_KEY = 'nakatsu_venus_github_sync_v1';
+  const GITHUB_TOKEN_KEY = 'nakatsu_venus_github_token_v1';
   const $ = (id) => document.getElementById(id);
 
   let selectedFiles = [];
@@ -637,6 +672,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
   let deferredInstallPrompt = null;
   let ocrWorker = null;
   let appSettings = loadSettings();
+  let cloudSettings = loadCloudSettings();
   C.setProfile(appSettings.machineType || 'myjuggler5');
   let previewUrls = [];
 
@@ -659,6 +695,33 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     return { priorPreset:'equal', priors:[1,1,1,1,1,1], machineType:'myjuggler5' };
   }
   function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(appSettings)); }
+  function loadCloudSettings() {
+    const defaults = { owner:'kaito2343-1', repo:'nakatsu-venus-analyzer', branch:'main', path:'data/history.json', autoSync:true, rememberToken:false, lastSync:null };
+    try { return { ...defaults, ...(JSON.parse(localStorage.getItem(GITHUB_SYNC_KEY)) || {}) }; } catch { return defaults; }
+  }
+  function saveCloudSettings() {
+    const safe = { ...cloudSettings };
+    delete safe.token;
+    localStorage.setItem(GITHUB_SYNC_KEY, JSON.stringify(safe));
+  }
+  function getGithubToken() {
+    return sessionStorage.getItem(GITHUB_TOKEN_KEY) || localStorage.getItem(GITHUB_TOKEN_KEY) || '';
+  }
+  function setGithubToken(token, remember=false) {
+    const value=String(token||'').trim();
+    sessionStorage.removeItem(GITHUB_TOKEN_KEY);
+    localStorage.removeItem(GITHUB_TOKEN_KEY);
+    if (!value) return;
+    if (remember) localStorage.setItem(GITHUB_TOKEN_KEY,value);
+    else sessionStorage.setItem(GITHUB_TOKEN_KEY,value);
+  }
+  function readStoreKey(key) {
+    try { return JSON.parse(localStorage.getItem(key)) || {version:1,days:{}}; } catch { return {version:1,days:{}}; }
+  }
+  function githubPublicUrl() {
+    const {owner,repo,branch,path}=cloudSettings;
+    return 'https://raw.githubusercontent.com/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/' + encodeURIComponent(branch) + '/' + String(path).split('/').map(encodeURIComponent).join('/');
+  }
   function getPriors() { return appSettings.priorPreset === 'custom' ? appSettings.priors : [1,1,1,1,1,1]; }
   function isGogo() { return appSettings.machineType === 'gogo3'; }
   function isDynamicMachineMode() { return !C.getProfile().fixedMachines; }
@@ -770,6 +833,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     renderAnalysis(); renderHistory();
     toast(`${date} を保存しました`);
     switchView('analysis');
+    maybeAutoCloudSync();
   }
 
   function clearDay() {
@@ -783,7 +847,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const store = loadStore();
     delete store.days[date]; saveStore(store);
     if ($('dateInput').value === date) loadDay(date);
-    renderHistory(); toast('削除しました');
+    renderHistory(); toast('削除しました'); maybeAutoCloudSync();
   }
 
   function applyParsedRows(rows, source='import', detectedMachines=null) {
@@ -893,7 +957,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       const left=grayL/Math.max(1,totalL);
       const right=grayR/Math.max(1,totalR);
       rowStats[y]={whole,left,right};
-      // v0.16: 530番のような「片側だけ灰色」の単独カード帯も拾う。
+      // v0.17: 530番のような「片側だけ灰色」の単独カード帯も拾う。
       hits[y]=whole>.60 || left>.60 || right>.60;
     }
     const bands=[];
@@ -1027,7 +1091,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const pitch=Math.round(median(diffs)||298);
 
     // 固定台番プロファイルだけ旧来の固定補完を使う。
-    // v0.16: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
+    // v0.17: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
     if (C.getProfile().fixedMachines) {
       for (const r of rows) {
         const l=r.left?.machine ?? null, rr=r.right?.machine ?? null;
@@ -1046,7 +1110,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
     } else {
-      // v0.16:
+      // v0.17:
       // ・501番のような「戻る」付き横長1台をfull-widthとして扱う
       // ・530番のような片側だけ灰色の単独台をその片側だけで扱う
       // ・実在する灰色カード行の中だけ欠番復元する
@@ -1711,6 +1775,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     $('customPriors').querySelectorAll('input').forEach(inp => inp.addEventListener('change', e => {
       appSettings.priors[Number(e.target.dataset.prior)] = Math.max(0, C.safeNum(e.target.value)); saveSettings(); renderAnalysis(); renderHistory();
     }));
+    renderCloudSettings();
   }
 
   function switchView(name) {
@@ -1720,6 +1785,117 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     if (name==='history') renderHistory();
     if (name==='settings') renderSettings();
     window.scrollTo({top:0,behavior:'smooth'});
+  }
+
+  function renderCloudSettings() {
+    const ids=['ghOwner','ghRepo','ghBranch','ghPath'];
+    if (!ids.every(id=>$(id))) return;
+    $('ghOwner').value=cloudSettings.owner || '';
+    $('ghRepo').value=cloudSettings.repo || '';
+    $('ghBranch').value=cloudSettings.branch || 'main';
+    $('ghPath').value=cloudSettings.path || 'data/history.json';
+    $('ghToken').value=getGithubToken();
+    $('ghRememberToken').checked=!!cloudSettings.rememberToken;
+    $('ghAutoSync').checked=!!cloudSettings.autoSync;
+    const when=cloudSettings.lastSync ? new Date(cloudSettings.lastSync).toLocaleString('ja-JP') : '未同期';
+    $('ghStatus').innerHTML=`<strong>${cloudSettings.lastSync ? 'クラウド同期済み' : '未同期'}</strong>最終同期: ${when}<br>${githubPublicUrl()}`;
+  }
+  function captureCloudSettingsFromUi() {
+    if (!$('ghOwner')) return;
+    cloudSettings.owner=$('ghOwner').value.trim() || 'kaito2343-1';
+    cloudSettings.repo=$('ghRepo').value.trim() || 'nakatsu-venus-analyzer';
+    cloudSettings.branch=$('ghBranch').value.trim() || 'main';
+    cloudSettings.path=$('ghPath').value.trim().replace(/^\/+/, '') || 'data/history.json';
+    cloudSettings.autoSync=$('ghAutoSync').checked;
+    cloudSettings.rememberToken=$('ghRememberToken').checked;
+    setGithubToken($('ghToken').value, cloudSettings.rememberToken);
+    saveCloudSettings();
+  }
+  function utf8ToBase64(text) {
+    const bytes=new TextEncoder().encode(text); let bin='';
+    for (let i=0;i<bytes.length;i+=0x8000) bin += String.fromCharCode(...bytes.subarray(i,i+0x8000));
+    return btoa(bin);
+  }
+  function base64ToUtf8(b64) {
+    const bin=atob(String(b64||'').replace(/\s/g,''));
+    const bytes=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+  function buildCloudPayload() {
+    return {
+      format:'nakatsu-venus-public-history-v1',
+      updatedAt:new Date().toISOString(),
+      app:'nakatsu-venus-analyzer',
+      sourcePage:location.href.split('#')[0].split('?')[0],
+      myjuggler5:readStoreKey(MY_STORAGE_KEY),
+      gogo3:readStoreKey(GOGO_STORAGE_KEY)
+    };
+  }
+  async function githubApi(path, options={}) {
+    const token=getGithubToken();
+    const headers={ 'Accept':'application/vnd.github+json', 'X-GitHub-Api-Version':'2022-11-28', ...(options.headers||{}) };
+    if (token) headers.Authorization=`Bearer ${token}`;
+    const res=await fetch(`https://api.github.com${path}`, {...options,headers});
+    let body=null; try{body=await res.json();}catch{}
+    if(!res.ok){ const msg=body?.message || `${res.status} ${res.statusText}`; throw new Error(msg); }
+    return body;
+  }
+  async function testGithubConnection() {
+    captureCloudSettingsFromUi();
+    const token=getGithubToken();
+    if(!token) throw new Error('GitHub Tokenを入力してください');
+    const {owner,repo}=cloudSettings;
+    await githubApi(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`);
+    $('ghStatus').innerHTML=`<strong>接続OK</strong>${owner}/${repo} に接続できました。<br>${githubPublicUrl()}`;
+    toast('GitHub接続OK');
+  }
+  async function cloudUpload(silent=false) {
+    captureCloudSettingsFromUi();
+    const token=getGithubToken();
+    if(!token){ if(!silent) toast('GitHub Tokenを入力してください'); return false; }
+    const {owner,repo,branch,path}=cloudSettings;
+    const apiPath=`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${String(path).split('/').map(encodeURIComponent).join('/')}`;
+    let sha=null;
+    try {
+      const current=await githubApi(`${apiPath}?ref=${encodeURIComponent(branch)}`);
+      sha=current?.sha || null;
+    } catch(e) {
+      if(!/Not Found/i.test(e.message)) throw e;
+    }
+    const payload=buildCloudPayload();
+    const body={ message:`Update Venus history ${todayLocal()}`, content:utf8ToBase64(JSON.stringify(payload,null,2)), branch };
+    if(sha) body.sha=sha;
+    await githubApi(apiPath,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    cloudSettings.lastSync=new Date().toISOString();
+    saveCloudSettings();
+    renderCloudSettings();
+    if(!silent) toast('クラウド同期しました');
+    return true;
+  }
+  async function cloudRestore() {
+    captureCloudSettingsFromUi();
+    const {owner,repo,branch,path}=cloudSettings;
+    const apiPath=`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${String(path).split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(branch)}`;
+    const file=await githubApi(apiPath);
+    const payload=JSON.parse(base64ToUtf8(file.content));
+    if(payload.format!=='nakatsu-venus-public-history-v1') throw new Error('クラウドデータ形式が違います');
+    if(!confirm('クラウドの履歴で、この端末のマイジャグ・ゴージャグ履歴を置き換えますか？')) return;
+    localStorage.setItem(MY_STORAGE_KEY,JSON.stringify(payload.myjuggler5 || {version:1,days:{}}));
+    localStorage.setItem(GOGO_STORAGE_KEY,JSON.stringify(payload.gogo3 || {version:1,days:{}}));
+    loadDay($('dateInput').value);
+    renderHistory();
+    renderAnalysis();
+    toast('クラウドから復元しました');
+  }
+  async function copyPublicHistoryUrl() {
+    captureCloudSettingsFromUi();
+    const ok=await copyText(githubPublicUrl());
+    toast(ok ? '公開履歴URLをコピーしました' : githubPublicUrl());
+  }
+  function maybeAutoCloudSync() {
+    if(!cloudSettings.autoSync || !getGithubToken()) return;
+    cloudUpload(true).catch(e=>{ console.warn('auto sync failed',e); toast('自動同期失敗: '+e.message); });
   }
 
   function buildChatgptSharePayload() {
@@ -1831,10 +2007,15 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     $('historyMachineSelect').addEventListener('change',renderMachineHistory);
     $('exportJsonBtn').addEventListener('click',exportJson);
     $('shareChatgptBtn').addEventListener('click',exportChatgptShare);
+    $('ghTestBtn').addEventListener('click',()=>testGithubConnection().catch(e=>toast('接続失敗: '+e.message)));
+    $('ghSyncBtn').addEventListener('click',()=>cloudUpload(false).catch(e=>toast('同期失敗: '+e.message)));
+    $('ghRestoreBtn').addEventListener('click',()=>cloudRestore().catch(e=>toast('復元失敗: '+e.message)));
+    $('ghCopyUrlBtn').addEventListener('click',copyPublicHistoryUrl);
+    ['ghOwner','ghRepo','ghBranch','ghPath','ghToken','ghRememberToken','ghAutoSync'].forEach(id=>$(id).addEventListener('change',()=>{ captureCloudSettingsFromUi(); renderCloudSettings(); }));
     $('exportCsvBtn').addEventListener('click',exportCsv);
     $('restoreInput').addEventListener('change',e=>{ if(e.target.files[0]) restoreJson(e.target.files[0]); e.target.value=''; });
     $('wipeAllBtn').addEventListener('click',()=>{
-      if (confirm('全履歴を完全に削除しますか？')) { localStorage.removeItem(storageKey()); loadDay($('dateInput').value); renderHistory(); toast('全データを削除しました'); }
+      if (confirm('全履歴を完全に削除しますか？')) { localStorage.removeItem(storageKey()); loadDay($('dateInput').value); renderHistory(); toast('全データを削除しました'); maybeAutoCloudSync(); }
     });
     $('priorPreset').addEventListener('change',e=>{
       appSettings.priorPreset=e.target.value; saveSettings(); renderSettings(); renderAnalysis(); renderHistory();
