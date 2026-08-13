@@ -128,7 +128,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.2</div>
       <h1>マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -453,12 +453,13 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       if (tail.length < 3) continue;
 
       let games = 0, bb = 0, rb = 0, certainty = 'review';
-      // CSV/4列形式はそのまま採用
-      if (tail.length === 3 && tail[0] <= 20000 && tail[1] <= 150 && tail[2] <= 150) {
-        [games, bb, rb] = tail;
-        certainty = 'ok';
+      // 表形式では台番の直後が「総G / BB / RB」のことが多い。
+      // 後ろに合算・BB確率・RB確率などが続いても最初の3列を優先する。
+      if (tail.length >= 3 && tail[0] >= 0 && tail[0] <= 20000 && tail[1] >= 0 && tail[1] <= 150 && tail[2] >= 0 && tail[2] <= 150) {
+        [games, bb, rb] = tail.slice(0, 3);
+        certainty = games >= 250 ? 'ok' : 'review';
       } else {
-        // OCR表: 総Gは行内で最も大きい妥当な値を優先
+        // OCR表: 列崩れした場合は総G候補を探索
         const candidates = tail.map((n,i)=>({n,i})).filter(x=>x.n >= 250 && x.n <= 20000);
         if (!candidates.length) continue;
         const gCandidate = candidates.sort((a,b)=>b.n-a.n)[0];
@@ -674,6 +675,88 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     toast(`${rows.length}台を反映${reviewCount ? `・${reviewCount}台要確認` : ''}`);
   }
 
+  function cleanOcrNumber(text) {
+    const s = String(text || '')
+      .replace(/[OoＯ]/g, '0')
+      .replace(/[Il|]/g, '1')
+      .replace(/[，]/g, ',')
+      .replace(/[^0-9]/g, '');
+    return s ? Number(s) : null;
+  }
+
+  function flattenOcrWords(blocks) {
+    const words = [];
+    for (const block of blocks || []) {
+      for (const paragraph of block.paragraphs || []) {
+        for (const line of paragraph.lines || []) {
+          for (const word of line.words || []) {
+            const b = word.bbox || {};
+            if (![b.x0,b.y0,b.x1,b.y1].every(Number.isFinite)) continue;
+            const n = cleanOcrNumber(word.text);
+            if (n === null) continue;
+            words.push({
+              text: String(word.text || ''), n,
+              x0:b.x0, y0:b.y0, x1:b.x1, y1:b.y1,
+              cx:(b.x0+b.x1)/2, cy:(b.y0+b.y1)/2,
+              h:Math.max(1,b.y1-b.y0), w:Math.max(1,b.x1-b.x0),
+              confidence:Number(word.confidence || 0),
+            });
+          }
+        }
+      }
+    }
+    return words;
+  }
+
+  // OCRの「改行」に頼らず、文字のY座標から表の同じ行を復元する。
+  function parseOcrBlocks(blocks) {
+    const words = flattenOcrWords(blocks);
+    if (!words.length) return [];
+    const rows = [];
+    const seen = new Set();
+    const machineWords = words
+      .filter(w => C.MACHINES.includes(w.n))
+      .sort((a,b)=>a.cy-b.cy || a.x0-b.x0);
+
+    for (const mw of machineWords) {
+      if (seen.has(mw.n)) continue;
+      // 同じ行として許容する縦幅。iPhoneスクショの表セル間隔にも耐えるよう少し広め。
+      const yTol = Math.max(14, mw.h * 1.25);
+      let same = words.filter(w => Math.abs(w.cy - mw.cy) <= yTol);
+      same.sort((a,b)=>a.x0-b.x0);
+
+      // 台番より右側の数値を優先。OCRが列を少し左に誤配置した時だけ全行をフォールバック。
+      let right = same.filter(w => w.x0 >= mw.x1 - 3 && w !== mw);
+      if (right.length < 3) right = same.filter(w => w !== mw && w.cx > mw.cx);
+      const nums = right.map(w=>w.n);
+
+      let games=null, bb=null, rb=null, certainty='review';
+      // 最優先: 台番の右に「総G / BB / RB」が並ぶ通常の表。
+      if (nums.length >= 3 && nums[0] <= 20000 && nums[1] <= 150 && nums[2] <= 150) {
+        [games,bb,rb] = nums.slice(0,3);
+        certainty = (games >= 250 && mw.confidence >= 45) ? 'ok' : 'review';
+      } else {
+        // 合算・確率列が混ざっても、最大の回転数候補の直後からBB/RBを拾う。
+        const gc = right
+          .map((w,i)=>({w,i}))
+          .filter(x=>x.w.n >= 100 && x.w.n <= 20000)
+          .sort((a,b)=>b.w.n-a.w.n)[0];
+        if (gc) {
+          games = gc.w.n;
+          const after = right.slice(gc.i+1).map(w=>w.n).filter(n=>n>=0 && n<=150);
+          if (after.length >= 2) [bb,rb] = after.slice(0,2);
+        }
+      }
+      if (games === null || bb === null || rb === null) continue;
+      const candidate = {machine:mw.n, games, bb, rb, certainty};
+      const v = C.validateRow(candidate);
+      if (!v.valid) candidate.certainty = 'review';
+      rows.push(candidate);
+      seen.add(mw.n);
+    }
+    return rows;
+  }
+
   async function getOcrWorker() {
     if (ocrWorker) return ocrWorker;
     if (!window.Tesseract) throw new Error('OCRライブラリを読み込めません。通信を確認してください。');
@@ -703,16 +786,23 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       const worker = await getOcrWorker();
       for (let i=0;i<selectedFiles.length;i++) {
         setOcrProgress(`画像 ${i+1}/${selectedFiles.length}`, 0);
-        const result = await worker.recognize(selectedFiles[i], { rotateAuto:true });
+        const result = await worker.recognize(
+          selectedFiles[i],
+          { rotateAuto:true },
+          { text:true, blocks:true }
+        );
         const text = result.data.text || '';
         allText.push(`--- ${selectedFiles[i].name} ---\n${text}`);
-        const parsed = C.parseImportText(text);
+
+        // まず座標ベースで表の行を復元。取れなければ従来のテキスト行解析へフォールバック。
+        let parsed = parseOcrBlocks(result.data.blocks || []);
+        if (!parsed.length) parsed = C.parseImportText(text);
         for (const r of parsed) if (!seen.has(r.machine)) { allRows.push(r); seen.add(r.machine); }
       }
       applyParsedRows(allRows, 'ocr');
       $('ocrRawText').textContent = allText.join('\n\n');
       $('ocrReviewDialog').showModal();
-      setOcrProgress('完了',100);
+      setOcrProgress(allRows.length ? `${allRows.length}台認識` : '認識0台・OCR結果を確認',100);
     } catch (err) {
       console.error(err);
       toast(`OCR失敗: ${err.message || err}`);
