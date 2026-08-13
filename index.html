@@ -142,7 +142,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.15</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.16</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -307,11 +307,13 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       <section class="panel">
         <h2>データ管理</h2>
         <div class="button-stack">
+          <button id="shareChatgptBtn" class="primary wide">ChatGPT共有JSONを出力</button>
           <button id="exportCsvBtn" class="secondary wide">全履歴をCSV出力</button>
           <label class="secondary wide file-button" for="restoreInput">JSONバックアップを復元</label>
           <input id="restoreInput" class="hidden" type="file" accept="application/json,.json" />
           <button id="wipeAllBtn" class="danger wide">全データ削除</button>
         </div>
+        <p class="hint">「ChatGPT共有JSONを出力」を押すと、全履歴入りJSONを1タップで作成し、ChatGPTに送る時の文も自動でコピーします。</p>
       </section>
 
       <section class="panel spec-panel">
@@ -891,7 +893,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       const left=grayL/Math.max(1,totalL);
       const right=grayR/Math.max(1,totalR);
       rowStats[y]={whole,left,right};
-      // v0.15: 530番のような「片側だけ灰色」の単独カード帯も拾う。
+      // v0.16: 530番のような「片側だけ灰色」の単独カード帯も拾う。
       hits[y]=whole>.60 || left>.60 || right>.60;
     }
     const bands=[];
@@ -1025,7 +1027,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const pitch=Math.round(median(diffs)||298);
 
     // 固定台番プロファイルだけ旧来の固定補完を使う。
-    // v0.15: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
+    // v0.16: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
     if (C.getProfile().fixedMachines) {
       for (const r of rows) {
         const l=r.left?.machine ?? null, rr=r.right?.machine ?? null;
@@ -1044,7 +1046,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
     } else {
-      // v0.15:
+      // v0.16:
       // ・501番のような「戻る」付き横長1台をfull-widthとして扱う
       // ・530番のような片側だけ灰色の単独台をその片側だけで扱う
       // ・実在する灰色カード行の中だけ欠番復元する
@@ -1720,6 +1722,63 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     window.scrollTo({top:0,behavior:'smooth'});
   }
 
+  function buildChatgptSharePayload() {
+    const data = loadStore();
+    const dates = Object.keys(data.days || {}).sort();
+    const lastDate = dates.length ? dates[dates.length - 1] : null;
+    const rowCount = dates.reduce((sum, date) => sum + ((data.days[date] || []).length), 0);
+    return {
+      exportedAt: new Date().toISOString(),
+      format: 'nakatsu-venus-chatgpt-share-v1',
+      app: 'nakatsu-venus-analyzer',
+      machineType: appSettings.machineType,
+      machineName: C.getProfile().name,
+      summary: {
+        savedDays: dates.length,
+        totalRows: rowCount,
+        lastDate,
+      },
+      data,
+      settings: appSettings,
+    };
+  }
+  function buildChatgptPrompt(payload) {
+    const name = payload.machineName || 'ジャグラー';
+    const days = payload.summary?.savedDays ?? 0;
+    const lastDate = payload.summary?.lastDate || '最新日';
+    return `このJSONは中津ヴィーナス用の分析アプリから出力した${name}の蓄積データです。\n` +
+      `保存日数は${days}日、最新日は${lastDate}です。\n` +
+      'このデータを使って、\n' +
+      '1. 店全体の傾向\n2. 直近の強弱\n3. 台番・位置・並び・上げ下げ傾向\n4. 翌日の高設定期待台ランキング\n' +
+      'を分析してください。';
+  }
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) {}
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return !!ok;
+    } catch (e) {
+      return false;
+    }
+  }
+  async function exportChatgptShare() {
+    const payload = buildChatgptSharePayload();
+    const name = `chatgpt_share_${C.getProfile().key}_${todayLocal()}.json`;
+    downloadFile(name, JSON.stringify(payload, null, 2), 'application/json');
+    const copied = await copyText(buildChatgptPrompt(payload));
+    toast(copied ? 'ChatGPT共有JSONを出力・貼り付け文もコピーしました' : 'ChatGPT共有JSONを出力しました');
+  }
+
   function exportJson() {
     const payload = { exportedAt:new Date().toISOString(), app:'nakatsu-venus-analyzer', machineType:appSettings.machineType, data:loadStore(), settings:appSettings };
     downloadFile(`nakatsu_venus_${C.getProfile().key}_backup_${todayLocal()}.json`, JSON.stringify(payload,null,2), 'application/json');
@@ -1771,6 +1830,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     });
     $('historyMachineSelect').addEventListener('change',renderMachineHistory);
     $('exportJsonBtn').addEventListener('click',exportJson);
+    $('shareChatgptBtn').addEventListener('click',exportChatgptShare);
     $('exportCsvBtn').addEventListener('click',exportCsv);
     $('restoreInput').addEventListener('change',e=>{ if(e.target.files[0]) restoreJson(e.target.files[0]); e.target.value=''; });
     $('wipeAllBtn').addEventListener('click',()=>{
