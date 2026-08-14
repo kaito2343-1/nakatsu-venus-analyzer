@@ -149,7 +149,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.20</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.21</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -957,7 +957,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       const left=grayL/Math.max(1,totalL);
       const right=grayR/Math.max(1,totalR);
       rowStats[y]={whole,left,right};
-      // v0.20: 530番のような「片側だけ灰色」の単独カード帯も拾う。
+      // v0.21: 530番のような「片側だけ灰色」の単独カード帯も拾う。
       hits[y]=whole>.60 || left>.60 || right>.60;
     }
     const bands=[];
@@ -992,7 +992,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         s=last=null;
       }
     }
-    // v0.20: 灰色ヘッダーの下に「画面中央の縦罫線」が続くかを測る。
+    // v0.21: 灰色ヘッダーの下に「画面中央の縦罫線」が続くかを測る。
     // 450/501のような横長1台は中央罫線がほぼ無く、451/452のような左右2台行は中央罫線が濃い。
     for (let i=0;i<bands.length;i++) {
       const b=bands[i];
@@ -1110,7 +1110,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const pitch=Math.round(median(diffs)||298);
 
     // 固定台番プロファイルだけ旧来の固定補完を使う。
-    // v0.20: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
+    // v0.21: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
     if (C.getProfile().fixedMachines) {
       for (const r of rows) {
         const l=r.left?.machine ?? null, rr=r.right?.machine ?? null;
@@ -1129,7 +1129,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
     } else {
-      // v0.20: 台番は「同じ物理カード位置」に直接ひも付ける。
+      // v0.21: 台番は「同じ物理カード位置」に直接ひも付ける。
       // 完全に台番を落とした行は、前後アンカーが連番として一致する場合だけ補完する。
       // 470→481のような台番ジャンプは絶対に471/472へ変換しない。
       const bandHasBack=(band)=>allWords.some(w=>
@@ -1142,7 +1142,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         r._hasBody=bodyLooksLikeMachineRow(allWords,bands,i,width,height,pitch);
         if (!r._hasBody) continue;
         const hasBack=bandHasBack(band);
-        // v0.20: 「戻る」のOCR成否に依存せず、中央罫線の有無で横長1台を判定。
+        // v0.21: 「戻る」のOCR成否に依存せず、中央罫線の有無で横長1台を判定。
         // 0.26未満なら中央の左右分割線が弱い＝450/501型の1台カード。
         r._singleFull=!!(band.fullGray && (band.centerDividerRatio ?? 1) < .26);
         r._singleLeft=!!(!r._singleFull && band.leftGray && !band.rightGray);
@@ -1169,7 +1169,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
 
-      // v0.20: 左右2台行で両方のOCR台番が読めても連番でない場合は整合性を修正する。
+      // v0.21: 左右2台行で両方のOCR台番が読めても連番でない場合は整合性を修正する。
       // 例: 489を479と誤読し右側490が正しい場合、直前487/488から489/490へ戻す。
       for (let i=0;i<rows.length;i++) {
         const r=rows[i];
@@ -1268,7 +1268,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         if (Number.isInteger(m)) known.push({idx:i,machine:m});
       }
 
-      // v0.20: ページ先頭側だけ台番OCRを落とした場合の逆向き救済。
+      // v0.21: ページ先頭側だけ台番OCRを落とした場合の逆向き救済。
       // 例: 450(横長),451,452 が読めず 453 が最初のアンカーでも、
       // その上に「実データカード」が3スロット実在していれば 450/451/452 と復元する。
       // 画像にカード自体がない番号は作らない。先頭8スロット以内だけに限定して暴走を防ぐ。
@@ -1486,7 +1486,37 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       certainty:best.exactRates>=2 && best.score>=120 ? 'ok' : 'review',
       _score:best.score,
       _exactRates:best.exactRates,
+      _edgeQuality:Math.max(0,...evidenceList.map(e=>Number(e._edgeQuality||0))),
     };
+  }
+
+  // v0.21: スクロールを分割して撮った画像の重複部分で、469→479のように十の位だけ誤読するケースを除外。
+  // 総G・BB・REGが完全一致し、台番差が10で、片方が画像上端の低品質カードだった場合だけ発動する。
+  function removeLikelyOverlapMisreads(rows) {
+    const out=[...rows];
+    const drop=new Set();
+    const byFingerprint=new Map();
+    for (const r of out) {
+      if (!(r.games>0)) continue;
+      const fp=`${r.games}|${r.bb}|${r.rb}`;
+      if (!byFingerprint.has(fp)) byFingerprint.set(fp,[]);
+      byFingerprint.get(fp).push(r);
+    }
+    for (const group of byFingerprint.values()) {
+      if (group.length<2) continue;
+      for (let i=0;i<group.length;i++) for (let j=i+1;j<group.length;j++) {
+        const a=group[i], b=group[j];
+        if (Math.abs(Number(a.machine)-Number(b.machine))!==10) continue;
+        const aq=Number(a._edgeQuality||0), bq=Number(b._edgeQuality||0);
+        const aEdge=aq<.42, bEdge=bq<.42;
+        if (aEdge===bEdge) continue;
+        const bad=aEdge?a:b;
+        const good=aEdge?b:a;
+        // 良い側が十分画像内部にある場合のみ削除。
+        if (Number(good._edgeQuality||0)>.55) drop.add(Number(bad.machine));
+      }
+    }
+    return out.filter(r=>!drop.has(Number(r.machine)));
   }
 
   function parseOcrEvidence(tsv,bandsInfo) {
@@ -1532,7 +1562,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     return {evidence:extractCardEvidence(words,d2), text:result.data.text||''};
   }
 
-  // v0.20: 画面上端カード向けの最終救済。
+  // v0.21: 画面上端カード向けの最終救済。
   // カード全体OCRで数値が混ざる場合に、総G・BB・REGを別々の小領域としてOCRする。
   async function retryCardFields(worker,file,d) {
     const img=await loadImageForPixels(file);
@@ -1698,6 +1728,14 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         const detectedType=detectedMachineTypeFromText(text);
         if (detectedType) detectedTypes.add(detectedType);
         const parsed=parseOcrEvidence(result.data.tsv||'',bandsInfo);
+        // v0.21: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
+        // 後段の重複排除に使うため、各カードの「画像端からの距離」を証拠へ保存する。
+        for (let ei=0;ei<parsed.evidence.length;ei++) {
+          const d=parsed.cards[ei];
+          const y=Number(d?.yT||0), h=Math.max(1,Number(bandsInfo.height||1));
+          parsed.evidence[ei]._edgeQuality=Math.max(0,Math.min(1,(y/h-.08)/.28));
+          parsed.evidence[ei]._imageIndex=i;
+        }
         // ゴージャグではここで台番レンジを補完しない。最終的な解決行だけで一覧を作る。
         imageParses.push({file:selectedFiles[i],parsed});
         for (const d of parsed.cards) detectedMachineSet.add(Number(d.machine));
@@ -1779,7 +1817,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
 
-      // v0.20: それでも未解決の「画像上端6カード」だけ、3項目を個別OCRする。
+      // v0.21: それでも未解決の「画像上端6カード」だけ、3項目を個別OCRする。
       const fieldFallback=new Map();
       const fieldSeen=new Set();
       let fieldRetries=0;
@@ -1810,14 +1848,19 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         const row=resolveMachineEvidence(evidenceMap.get(machine)||[]) || fieldFallback.get(Number(machine));
         if (row) rows.push(row);
       }
-      rows.sort((a,b)=>a.machine-b.machine);
-      const detectedMachines=[...new Set([...detectedMachineSet,...evidenceMap.keys()].map(Number).filter(Number.isFinite))].sort((a,b)=>a-b);
-      applyParsedRows(rows,'ocr',detectedMachines);
+      let cleanedRows=removeLikelyOverlapMisreads(rows);
+      cleanedRows.sort((a,b)=>a.machine-b.machine);
+      // 削除した誤読台番を一覧側にも残さない。
+      const cleanedSet=new Set(cleanedRows.map(r=>Number(r.machine)));
+      const detectedMachines=[...new Set([...detectedMachineSet,...evidenceMap.keys()].map(Number).filter(Number.isFinite))]
+        .filter(m=>cleanedSet.has(m) || !rows.some(r=>Number(r.machine)===m))
+        .sort((a,b)=>a-b);
+      applyParsedRows(cleanedRows,'ocr',detectedMachines);
       $('ocrRawText').textContent=allText.join('\n\n');
       $('ocrReviewDialog').showModal();
-      const review=rows.filter(r=>r.certainty==='review').length;
-      const targetCount=isDynamicMachineMode() ? [...detectedMachineSet].length : C.getMachines().length;
-      setOcrProgress(rows.length ? `${rows.length}/${targetCount||rows.length}台認識${review?`・${review}台要確認`:''}` : '認識0台・下のOCR結果を送ってください',100);
+      const review=cleanedRows.filter(r=>r.certainty==='review').length;
+      const targetCount=isDynamicMachineMode() ? detectedMachines.length : C.getMachines().length;
+      setOcrProgress(cleanedRows.length ? `${cleanedRows.length}/${targetCount||cleanedRows.length}台認識${review?`・${review}台要確認`:''}` : '認識0台・下のOCR結果を送ってください',100);
     } catch (err) {
       console.error(err);
       toast(`OCR失敗: ${err.message || err}`);
