@@ -153,7 +153,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.24</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.25</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -206,9 +206,9 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         </div>
         <label class="precision-row" for="precisionOcr">
           <input id="precisionOcr" type="checkbox" checked>
-          <span><strong>高精度モード（推奨）</strong><small>台番を2方式、数値を複数方式で再読取し、表示確率との整合性も確認します。通常より時間はかかります。</small></span>
+          <span><strong>二重照合モード（推奨）</strong><small>台番を4回、数値を3系統で再確認し、2系統以上が一致した結果を優先します。漏れ・架空台も物理カード数と照合します。</small></span>
         </label>
-        <p class="hint">OCRは読み間違いがあり得ます。複数読取で一致しない行は黄色で「要確認」にします。</p>
+        <p class="hint">精度優先のため通常より時間がかかります。2重確認で一致しない台は自動確定せず「要確認」にします。</p>
       </section>
 
       <section class="panel">
@@ -965,7 +965,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       const left=grayL/Math.max(1,totalL);
       const right=grayR/Math.max(1,totalR);
       rowStats[y]={whole,left,right};
-      // v0.24: 530番のような「片側だけ灰色」の単独カード帯も拾う。
+      // v0.25: 530番のような「片側だけ灰色」の単独カード帯も拾う。
       hits[y]=whole>.60 || left>.60 || right>.60;
     }
     const bands=[];
@@ -1000,7 +1000,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         s=last=null;
       }
     }
-    // v0.24: 灰色ヘッダーの下に「画面中央の縦罫線」が続くかを測る。
+    // v0.25: 灰色ヘッダーの下に「画面中央の縦罫線」が続くかを測る。
     // 450/501のような横長1台は中央罫線がほぼ無く、451/452のような左右2台行は中央罫線が濃い。
     for (let i=0;i<bands.length;i++) {
       const b=bands[i];
@@ -1022,29 +1022,74 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     return {bands,width:canvas.width,height:canvas.height};
   }
 
-  function machineNumberFromWord(w) {
-    if (!w || !w.digits || w.rateDens?.length) return null;
-    if (w.digits.length >= 3) {
-      const first3=Number(w.digits.slice(0,3));
-      if (C.isValidMachine(first3)) return first3;
+  function machineCandidatesFromDigits(digits) {
+    const ds=String(digits||'').replace(/\D/g,'');
+    const out=[]; const seen=new Set();
+    for(let i=0;i<=ds.length-3;i++){
+      const n=Number(ds.slice(i,i+3));
+      if(!Number.isInteger(n) || n<100 || n>999 || seen.has(n)) continue;
+      seen.add(n); out.push({machine:n,pos:i});
     }
-    return null;
+    return out;
   }
 
   function chooseMachineWords(words, bands, width) {
-    const inBand=(w)=>bands.some(b=>w.cy>=b.y0-7 && w.cy<=b.y1+7);
-    const candidates=words.map(w=>({w,machine:machineNumberFromWord(w)})).filter(x=>
-      x.machine && inBand(x.w) && x.w.h>=15
-    );
-    const best=new Map();
-    for (const x of candidates) {
-      const w=x.w, machine=x.machine;
-      const score=(w.confidence||0)+Math.min(45,w.h*1.4);
-      const key=`${machine}:${w.cx<width/2?'L':'R'}`;
-      const prev=best.get(key);
-      if (!prev || score>prev._score) best.set(key,{...w,machine,_score:score});
+    const slots=new Map();
+    for(const w of words||[]){
+      if(!w?.digits || w.digits.length<3 || w.rateDens?.length || w.h<12) continue;
+      const bi=bands.findIndex(b=>w.cy>=b.y0-8 && w.cy<=b.y1+8);
+      if(bi<0) continue;
+      const side=w.cx<width/2?'L':'R';
+      const key=bi+':'+side;
+      if(!slots.has(key)) slots.set(key,new Map());
+      for(const cand of machineCandidatesFromDigits(w.digits)){
+        const score=(w.confidence||0)+Math.min(45,w.h*1.4)+(String(w.digits).length===3?28:0)+(w._headerRetry?18:0);
+        const m=slots.get(key); const prev=m.get(cand.machine);
+        if(!prev) m.set(cand.machine,{machine:cand.machine,score,hits:1,word:w});
+        else { prev.score+=Math.max(6,score*.34); prev.hits++; if(score>(prev.word?._scoreBase||0)) prev.word=w; }
+      }
     }
-    return [...best.values()].sort((a,b)=>a.cy-b.cy || a.cx-b.cx);
+    const slotEntries=[...slots.entries()];
+    if(!slotEntries.length) return [];
+    // 百番台は「何スロットで候補に出たか」を優先。145xxxのような先頭ノイズより、451/452…の共通帯が勝つ。
+    const hundredSupport=new Map();
+    for(const [,m] of slotEntries){
+      const hs=new Set([...m.keys()].map(n=>Math.floor(n/100)));
+      for(const h of hs) hundredSupport.set(h,(hundredSupport.get(h)||0)+1);
+    }
+    const rankedHundreds=[...hundredSupport.entries()].sort((a,b)=>b[1]-a[1]);
+    const dominant=rankedHundreds[0]?.[0];
+    const dominantCount=rankedHundreds[0]?.[1]||0;
+    const useDominant=Number.isInteger(dominant) && dominantCount>=Math.max(3,Math.ceil(slotEntries.length*.72));
+
+    const byBand=new Map();
+    for(const [key,m] of slotEntries){
+      const [biS,side]=key.split(':'); const bi=Number(biS);
+      let list=[...m.values()];
+      if(useDominant){ const f=list.filter(x=>Math.floor(x.machine/100)===dominant); if(f.length) list=f; }
+      list.sort((a,b)=>(b.score+b.hits*20)-(a.score+a.hits*20));
+      if(!byBand.has(bi)) byBand.set(bi,{L:[],R:[]});
+      byBand.get(bi)[side]=list.slice(0,8);
+    }
+    const chosen=[];
+    for(const [bi,pair] of [...byBand.entries()].sort((a,b)=>a[0]-b[0])){
+      const L=pair.L||[], R=pair.R||[];
+      let l=null,r=null;
+      if(L.length&&R.length){
+        let best=null;
+        for(const a of L) for(const b of R){
+          let sc=a.score+b.score+(a.hits+b.hits)*22;
+          if(b.machine===a.machine+1) sc+=360; else sc-=120;
+          if(!best||sc>best.sc) best={a,b,sc};
+        }
+        l=best?.a||L[0]; r=best?.b||R[0];
+      } else { l=L[0]||null; r=R[0]||null; }
+      for(const x of [l,r]) if(x){
+        const w=x.word||{};
+        chosen.push({...w,machine:x.machine,_score:(x.score||0)+(x.hits||1)*35,_candidateHits:x.hits||1,_bandIndex:bi});
+      }
+    }
+    return chosen.sort((a,b)=>a.cy-b.cy||a.cx-b.cx);
   }
 
   function median(nums) {
@@ -1118,7 +1163,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const pitch=Math.round(median(diffs)||298);
 
     // 固定台番プロファイルだけ旧来の固定補完を使う。
-    // v0.24: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
+    // v0.25: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
     if (C.getProfile().fixedMachines) {
       for (const r of rows) {
         const l=r.left?.machine ?? null, rr=r.right?.machine ?? null;
@@ -1137,7 +1182,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
     } else {
-      // v0.24: 台番は「同じ物理カード位置」に直接ひも付ける。
+      // v0.25: 台番は「同じ物理カード位置」に直接ひも付ける。
       // 完全に台番を落とした行は、前後アンカーが連番として一致する場合だけ補完する。
       // 470→481のような台番ジャンプは絶対に471/472へ変換しない。
       const bandHasBack=(band)=>allWords.some(w=>
@@ -1150,7 +1195,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         r._hasBody=bodyLooksLikeMachineRow(allWords,bands,i,width,height,pitch);
         if (!r._hasBody) continue;
         const hasBack=bandHasBack(band);
-        // v0.24: 「戻る」のOCR成否に依存せず、中央罫線の有無で横長1台を判定。
+        // v0.25: 「戻る」のOCR成否に依存せず、中央罫線の有無で横長1台を判定。
         // 0.26未満なら中央の左右分割線が弱い＝450/501型の1台カード。
         r._singleFull=!!(band.fullGray && (band.centerDividerRatio ?? 1) < .26);
         r._singleLeft=!!(!r._singleFull && band.leftGray && !band.rightGray);
@@ -1177,7 +1222,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
 
-      // v0.24: 左右2台行で両方のOCR台番が読めても連番でない場合は整合性を修正する。
+      // v0.25: 左右2台行で両方のOCR台番が読めても連番でない場合は整合性を修正する。
       // 例: 489を479と誤読し右側490が正しい場合、直前487/488から489/490へ戻す。
       for (let i=0;i<rows.length;i++) {
         const r=rows[i];
@@ -1276,7 +1321,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         if (Number.isInteger(m)) known.push({idx:i,machine:m});
       }
 
-      // v0.24: ページ先頭側だけ台番OCRを落とした場合の逆向き救済。
+      // v0.25: ページ先頭側だけ台番OCRを落とした場合の逆向き救済。
       // 例: 450(横長),451,452 が読めず 453 が最初のアンカーでも、
       // その上に「実データカード」が3スロット実在していれば 450/451/452 と復元する。
       // 画像にカード自体がない番号は作らない。先頭8スロット以内だけに限定して暴走を防ぐ。
@@ -1300,7 +1345,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         const sl=slots[i], m=rows[sl.row][sl.side]?.machine;
         if (Number.isInteger(m)) known.push({idx:i,machine:m});
       }
-      // v0.24: 連続する物理スロットの両端が、台番差とスロット差で完全一致する場合は、
+      // v0.25: 連続する物理スロットの両端が、台番差とスロット差で完全一致する場合は、
       // 中間スロットの誤読も含めて期待台番へ矯正する。
       // 例: 450, [410誤読], [空欄], 453 -> 450,451,452,453。
       // 470→481のように台番差とスロット差が一致しないジャンプは一切触らない。
@@ -1508,9 +1553,9 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     };
   }
 
-  // v0.24: スクロールを分割して撮った画像の重複部分で、469→479のように十の位だけ誤読するケースを除外。
+  // v0.25: スクロールを分割して撮った画像の重複部分で、469→479のように十の位だけ誤読するケースを除外。
   // 総G・BB・REGが完全一致し、台番差が10で、片方が画像上端の低品質カードだった場合だけ発動する。
-  // v0.24: 同じ百番台の中に410のような孤立誤読が残る場合を除外する。
+  // v0.25: 同じ百番台の中に410のような孤立誤読が残る場合を除外する。
   // 隣接台番差25以内を同一クラスタとみなし、1台だけの孤立クラスタは捨てる。
   // 450〜470→481〜490（差11）や501〜511→522〜530（差11）は同一クラスタとして維持する。
   function filterSparseMachineClusters(rows) {
@@ -1628,9 +1673,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const out=[];
     for(const w of words){
       if(!w.digits || w.digits.length<3) continue;
-      const m=Number(w.digits.slice(0,3));
-      if(!C.isValidMachine(m)) continue;
-      const ow={...w,x0:w.x0/scale,x1:w.x1/scale,y0:w.y0/scale,y1:w.y1/scale,cx:w.cx/scale,cy:w.cy/scale,w:w.w/scale,h:w.h/scale,machine:m,_score:150+(w.confidence||0)};
+      const ow={...w,x0:w.x0/scale,x1:w.x1/scale,y0:w.y0/scale,y1:w.y1/scale,cx:w.cx/scale,cy:w.cy/scale,w:w.w/scale,h:w.h/scale,_headerRetry:true};
       if(bands.some(b=>ow.cy>=b.y0-8 && ow.cy<=b.y1+8)) out.push(ow);
     }
     return out;
@@ -1657,6 +1700,24 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       if(chosen) out.push({...chosen,machine:winner,_score:(chosen._score||0)+80});
     }
     return out.sort((x,y)=>x.cy-y.cy||x.cx-y.cx);
+  }
+
+  function countPhysicalCardSlots(words,bandsInfo) {
+    const bands=bandsInfo?.bands||[]; const width=bandsInfo?.width||0; const height=bandsInfo?.height||0;
+    if(!bands.length) return 0;
+    const starts=bands.map(b=>b.y0), diffs=[];
+    for(let i=0;i<starts.length-1;i++){ const d=starts[i+1]-starts[i]; if(d>=220&&d<=430) diffs.push(d); }
+    const pitch=Math.round(median(diffs)||298);
+    let count=0;
+    for(let i=0;i<bands.length;i++){
+      const b=bands[i];
+      if(!bodyLooksLikeMachineRow(words,bands,i,width,height,pitch)) continue;
+      const singleFull=!!(b.fullGray && (b.centerDividerRatio??1)<.26);
+      const singleLeft=!!(!singleFull && b.leftGray && !b.rightGray);
+      const singleRight=!!(!singleFull && b.rightGray && !b.leftGray);
+      count += (singleFull||singleLeft||singleRight) ? 1 : 2;
+    }
+    return count;
   }
 
   function parseOcrEvidence(tsv,bandsInfo) {
@@ -1702,7 +1763,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     return {evidence:extractCardEvidence(words,d2), text:result.data.text||''};
   }
 
-  // v0.24: 画面上端カード向けの最終救済。
+  // v0.25: 画面上端カード向けの最終救済。
   // カード全体OCRで数値が混ざる場合に、総G・BB・REGを別々の小領域としてOCRする。
   async function retryCardFields(worker,file,d) {
     const img=await loadImageForPixels(file);
@@ -1816,7 +1877,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     return evidence;
   }
 
-  async function retryImageBinaryEvidence(worker,file,cards) {
+  async function retryImageBinaryEvidence(worker,file,cards,threshold=178) {
     if (!cards?.length) return [];
     const img=await loadImageForPixels(file);
     const iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height;
@@ -1829,7 +1890,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const im=ctx.getImageData(0,0,canvas.width,canvas.height), px=im.data;
     for(let i=0;i<px.length;i+=4){
       const g=px[i]*.299+px[i+1]*.587+px[i+2]*.114;
-      const v=g<178?0:255; px[i]=px[i+1]=px[i+2]=v;
+      const v=g<threshold?0:255; px[i]=px[i+1]=px[i+2]=v;
     }
     ctx.putImageData(im,0,0);
     await worker.setParameters({tessedit_pageseg_mode:'11',tessedit_char_whitelist:'0123456789,/',preserve_interword_spaces:'1',user_defined_dpi:'300'});
@@ -1904,17 +1965,17 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         if (appSettings.highPrecisionOcr !== false) {
           try {
             setOcrProgress(`画像 ${i+1}/${selectedFiles.length}・台番を精密確認`,18);
-            const h1=await retryHeaderMachineWords(worker,selectedFiles[i],bandsInfo,190);
-            const h2=await retryHeaderMachineWords(worker,selectedFiles[i],bandsInfo,210);
-            const merged=consensusMachineWords(parsed.machineWords,h1,h2,bandsInfo.bands,bandsInfo.width);
+            const headerPasses=[];
+            for(const th of [175,190,205,220]) headerPasses.push(await retryHeaderMachineWords(worker,selectedFiles[i],bandsInfo,th));
+            const merged=chooseMachineWords([...parsed.words,...headerPasses.flat()],bandsInfo.bands,bandsInfo.width);
             if(merged.length){
               const cards=buildCardDescriptors(merged,bandsInfo.bands,bandsInfo.width,bandsInfo.height,parsed.words);
               parsed={...parsed,machineWords:merged,cards,evidence:cards.map(d=>extractCardEvidence(parsed.words,d))};
             }
           } catch(e) { console.warn('precision header retry failed',e); }
         }
-        // v0.24: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
-        // v0.24: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
+        // v0.25: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
+        // v0.25: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
         // 後段の重複排除に使うため、各カードの「画像端からの距離」を証拠へ保存する。
         for (let ei=0;ei<parsed.evidence.length;ei++) {
           const d=parsed.cards[ei];
@@ -1923,6 +1984,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
           parsed.evidence[ei]._imageIndex=i;
         }
         // ゴージャグではここで台番レンジを補完しない。最終的な解決行だけで一覧を作る。
+        parsed.physicalCardCount=countPhysicalCardSlots(parsed.words,bandsInfo);
         imageParses.push({file:selectedFiles[i],parsed});
         for (const d of parsed.cards) detectedMachineSet.add(Number(d.machine));
         for (const e of parsed.evidence) {
@@ -1930,7 +1992,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
           evidenceMap.get(e.machine).push(e);
         }
         allText.push(`--- ${selectedFiles[i].name} ---`);
-        allText.push(`灰色ヘッダー:${bandsInfo.bands.length} / 機番:${parsed.cards.map(x=>x.machine).join(',')||'なし'}`);
+        allText.push(`灰色ヘッダー:${bandsInfo.bands.length} / 物理カード:${parsed.physicalCardCount} / 台番確定:${parsed.cards.length} / 機番:${parsed.cards.map(x=>x.machine).join(',')||'なし'}`);
         allText.push(text);
       }
 
@@ -1984,13 +2046,18 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       if (appSettings.highPrecisionOcr !== false) {
         for (let i=0;i<imageParses.length;i++) {
           const ip=imageParses[i];
-          const reviewCards=ip.parsed.cards.filter(d=>{ const r=resolveMachineEvidence(evidenceMap.get(d.machine)||[]); return !r || r.certainty==='review'; });
-          if(!reviewCards.length) continue;
-          setOcrProgress(`画像 ${i+1}/${imageParses.length}・白黒で照合`,Math.min(98,84+Math.round((i+1)/imageParses.length*8)));
+          const allCards=ip.parsed.cards;
+          if(!allCards.length) continue;
+          setOcrProgress(`画像 ${i+1}/${imageParses.length}・白黒1回目`,Math.min(97,82+Math.round((i+1)/imageParses.length*6)));
           try {
-            const ev3=await retryImageBinaryEvidence(worker,ip.file,reviewCards);
-            for(const e of ev3){ if(!evidenceMap.has(e.machine)) evidenceMap.set(e.machine,[]); evidenceMap.get(e.machine).push(e); }
-          } catch(e){ console.warn('binary precision retry failed',e); }
+            const ev3=await retryImageBinaryEvidence(worker,ip.file,allCards,174);
+            for(const e of ev3){ e._verifyPass='binary174'; if(!evidenceMap.has(e.machine)) evidenceMap.set(e.machine,[]); evidenceMap.get(e.machine).push(e); }
+          } catch(e){ console.warn('binary174 retry failed',e); }
+          setOcrProgress(`画像 ${i+1}/${imageParses.length}・白黒2回目`,Math.min(98,87+Math.round((i+1)/imageParses.length*6)));
+          try {
+            const ev4=await retryImageBinaryEvidence(worker,ip.file,allCards,198);
+            for(const e of ev4){ e._verifyPass='binary198'; if(!evidenceMap.has(e.machine)) evidenceMap.set(e.machine,[]); evidenceMap.get(e.machine).push(e); }
+          } catch(e){ console.warn('binary198 retry failed',e); }
         }
       }
 
@@ -2017,7 +2084,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
 
-      // v0.24: それでも未解決の「画像上端6カード」だけ、3項目を個別OCRする。
+      // v0.25: それでも未解決の「画像上端6カード」だけ、3項目を個別OCRする。
       const fieldFallback=new Map();
       const fieldSeen=new Set();
       let fieldRetries=0;
@@ -2073,8 +2140,8 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         const row=precisionFieldRows.get(Number(machine)) || resolveMachineEvidence(evidenceMap.get(machine)||[]) || fieldFallback.get(Number(machine));
         if (row) rows.push(row);
       }
-      let cleanedRows=removeLikelyOverlapMisreads(rows);
-      // v0.24: OCR候補を増やした副作用で本文の数字が台番化することがある。
+      let cleanedRows=removeLikelyOverlapMisreads(rows).filter(r=>Number(r.games)>0 && C.validateRow(r).valid);
+      // v0.25: OCR候補を増やした副作用で本文の数字が台番化することがある。
       // その画像群で支配的な百番台だけを残し、144/260等の異常台番を除外する。
       const bandFiltered=filterDominantMachineBand(cleanedRows);
       cleanedRows=bandFiltered.rows;
@@ -2097,8 +2164,11 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       $('ocrRawText').textContent=allText.join('\n\n');
       $('ocrReviewDialog').showModal();
       const review=cleanedRows.filter(r=>r.certainty==='review').length;
+      const physical=imageParses.reduce((sum,x)=>sum+Number(x.parsed.physicalCardCount||0),0);
+      const anchored=imageParses.reduce((sum,x)=>sum+Number(x.parsed.cards?.length||0),0);
+      const unresolved=Math.max(0,physical-anchored);
       const targetCount=isDynamicMachineMode() ? detectedMachines.length : C.getMachines().length;
-      setOcrProgress(cleanedRows.length ? `${cleanedRows.length}/${targetCount||cleanedRows.length}台認識${review?`・${review}台要確認`:''}` : '認識0台・下のOCR結果を送ってください',100);
+      setOcrProgress(cleanedRows.length ? `${cleanedRows.length}/${targetCount||cleanedRows.length}台認識${review?`・${review}台要確認`:''}${unresolved?`・台番未解決${unresolved}カード`:''}` : '認識0台・下のOCR結果を送ってください',100);
     } catch (err) {
       console.error(err);
       toast(`OCR失敗: ${err.message || err}`);
