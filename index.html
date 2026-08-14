@@ -153,7 +153,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.23</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.24</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -965,7 +965,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       const left=grayL/Math.max(1,totalL);
       const right=grayR/Math.max(1,totalR);
       rowStats[y]={whole,left,right};
-      // v0.23: 530番のような「片側だけ灰色」の単独カード帯も拾う。
+      // v0.24: 530番のような「片側だけ灰色」の単独カード帯も拾う。
       hits[y]=whole>.60 || left>.60 || right>.60;
     }
     const bands=[];
@@ -1000,7 +1000,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         s=last=null;
       }
     }
-    // v0.23: 灰色ヘッダーの下に「画面中央の縦罫線」が続くかを測る。
+    // v0.24: 灰色ヘッダーの下に「画面中央の縦罫線」が続くかを測る。
     // 450/501のような横長1台は中央罫線がほぼ無く、451/452のような左右2台行は中央罫線が濃い。
     for (let i=0;i<bands.length;i++) {
       const b=bands[i];
@@ -1118,7 +1118,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const pitch=Math.round(median(diffs)||298);
 
     // 固定台番プロファイルだけ旧来の固定補完を使う。
-    // v0.23: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
+    // v0.24: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
     if (C.getProfile().fixedMachines) {
       for (const r of rows) {
         const l=r.left?.machine ?? null, rr=r.right?.machine ?? null;
@@ -1137,7 +1137,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
     } else {
-      // v0.23: 台番は「同じ物理カード位置」に直接ひも付ける。
+      // v0.24: 台番は「同じ物理カード位置」に直接ひも付ける。
       // 完全に台番を落とした行は、前後アンカーが連番として一致する場合だけ補完する。
       // 470→481のような台番ジャンプは絶対に471/472へ変換しない。
       const bandHasBack=(band)=>allWords.some(w=>
@@ -1150,7 +1150,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         r._hasBody=bodyLooksLikeMachineRow(allWords,bands,i,width,height,pitch);
         if (!r._hasBody) continue;
         const hasBack=bandHasBack(band);
-        // v0.23: 「戻る」のOCR成否に依存せず、中央罫線の有無で横長1台を判定。
+        // v0.24: 「戻る」のOCR成否に依存せず、中央罫線の有無で横長1台を判定。
         // 0.26未満なら中央の左右分割線が弱い＝450/501型の1台カード。
         r._singleFull=!!(band.fullGray && (band.centerDividerRatio ?? 1) < .26);
         r._singleLeft=!!(!r._singleFull && band.leftGray && !band.rightGray);
@@ -1177,7 +1177,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
 
-      // v0.23: 左右2台行で両方のOCR台番が読めても連番でない場合は整合性を修正する。
+      // v0.24: 左右2台行で両方のOCR台番が読めても連番でない場合は整合性を修正する。
       // 例: 489を479と誤読し右側490が正しい場合、直前487/488から489/490へ戻す。
       for (let i=0;i<rows.length;i++) {
         const r=rows[i];
@@ -1276,7 +1276,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         if (Number.isInteger(m)) known.push({idx:i,machine:m});
       }
 
-      // v0.23: ページ先頭側だけ台番OCRを落とした場合の逆向き救済。
+      // v0.24: ページ先頭側だけ台番OCRを落とした場合の逆向き救済。
       // 例: 450(横長),451,452 が読めず 453 が最初のアンカーでも、
       // その上に「実データカード」が3スロット実在していれば 450/451/452 と復元する。
       // 画像にカード自体がない番号は作らない。先頭8スロット以内だけに限定して暴走を防ぐ。
@@ -1300,17 +1300,27 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         const sl=slots[i], m=rows[sl.row][sl.side]?.machine;
         if (Number.isInteger(m)) known.push({idx:i,machine:m});
       }
-      for (let k=0;k<known.length-1;k++) {
-        const a=known[k], b=known[k+1];
-        const di=b.idx-a.idx, dm=b.machine-a.machine;
-        if (di<=1 || Math.abs(dm)!==di) continue;
-        const step=dm>0?1:-1;
-        for (let q=a.idx+1;q<b.idx;q++) {
-          const sl=slots[q];
-          if (rows[sl.row][sl.side]?.machine) continue;
-          const machine=a.machine+step*(q-a.idx);
-          if (!C.isValidMachine(machine)) continue;
-          rows[sl.row][sl.side]={machine,_score:0,_inferred:true,_anchored:true};
+      // v0.24: 連続する物理スロットの両端が、台番差とスロット差で完全一致する場合は、
+      // 中間スロットの誤読も含めて期待台番へ矯正する。
+      // 例: 450, [410誤読], [空欄], 453 -> 450,451,452,453。
+      // 470→481のように台番差とスロット差が一致しないジャンプは一切触らない。
+      for (let ai=0;ai<known.length;ai++) {
+        const a=known[ai];
+        for (let bi=ai+1;bi<known.length;bi++) {
+          const b=known[bi];
+          const di=b.idx-a.idx, dm=b.machine-a.machine;
+          if (di>10) break;
+          if (di<=1 || dm!==di) continue;
+          for (let q=a.idx+1;q<b.idx;q++) {
+            const sl=slots[q];
+            const machine=a.machine+(q-a.idx);
+            if (!C.isValidMachine(machine)) continue;
+            const cur=rows[sl.row][sl.side];
+            if (!cur || Number(cur.machine)!==machine) {
+              rows[sl.row][sl.side]={machine,_score:0,_inferred:true,_anchored:true,_sequenceCorrected:true};
+            }
+          }
+          break;
         }
       }
     }
@@ -1498,8 +1508,31 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     };
   }
 
-  // v0.23: スクロールを分割して撮った画像の重複部分で、469→479のように十の位だけ誤読するケースを除外。
+  // v0.24: スクロールを分割して撮った画像の重複部分で、469→479のように十の位だけ誤読するケースを除外。
   // 総G・BB・REGが完全一致し、台番差が10で、片方が画像上端の低品質カードだった場合だけ発動する。
+  // v0.24: 同じ百番台の中に410のような孤立誤読が残る場合を除外する。
+  // 隣接台番差25以内を同一クラスタとみなし、1台だけの孤立クラスタは捨てる。
+  // 450〜470→481〜490（差11）や501〜511→522〜530（差11）は同一クラスタとして維持する。
+  function filterSparseMachineClusters(rows) {
+    const src=[...(rows||[])].filter(r=>Number.isInteger(Number(r.machine))).sort((a,b)=>Number(a.machine)-Number(b.machine));
+    if(src.length<5) return {rows:src,dropped:[]};
+    const clusters=[];
+    let cur=[];
+    for(const r of src){
+      if(!cur.length || Number(r.machine)-Number(cur[cur.length-1].machine)<=25) cur.push(r);
+      else { clusters.push(cur); cur=[r]; }
+    }
+    if(cur.length) clusters.push(cur);
+    if(clusters.length<=1) return {rows:src,dropped:[]};
+    const substantial=clusters.filter(c=>c.length>=3);
+    if(!substantial.length) return {rows:src,dropped:[]};
+    const kept=[],dropped=[];
+    for(const c of clusters){
+      if(c.length>=3) kept.push(...c); else dropped.push(...c);
+    }
+    return {rows:kept.sort((a,b)=>a.machine-b.machine),dropped};
+  }
+
   function filterDominantMachineBand(rows) {
     const src=(rows||[]).filter(r=>Number.isInteger(Number(r.machine)));
     if(src.length<4) return {rows:src, hundred:null, dropped:[]};
@@ -1669,7 +1702,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     return {evidence:extractCardEvidence(words,d2), text:result.data.text||''};
   }
 
-  // v0.23: 画面上端カード向けの最終救済。
+  // v0.24: 画面上端カード向けの最終救済。
   // カード全体OCRで数値が混ざる場合に、総G・BB・REGを別々の小領域としてOCRする。
   async function retryCardFields(worker,file,d) {
     const img=await loadImageForPixels(file);
@@ -1880,8 +1913,8 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
             }
           } catch(e) { console.warn('precision header retry failed',e); }
         }
-        // v0.23: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
-        // v0.23: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
+        // v0.24: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
+        // v0.24: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
         // 後段の重複排除に使うため、各カードの「画像端からの距離」を証拠へ保存する。
         for (let ei=0;ei<parsed.evidence.length;ei++) {
           const d=parsed.cards[ei];
@@ -1984,7 +2017,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
 
-      // v0.23: それでも未解決の「画像上端6カード」だけ、3項目を個別OCRする。
+      // v0.24: それでも未解決の「画像上端6カード」だけ、3項目を個別OCRする。
       const fieldFallback=new Map();
       const fieldSeen=new Set();
       let fieldRetries=0;
@@ -2041,19 +2074,24 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         if (row) rows.push(row);
       }
       let cleanedRows=removeLikelyOverlapMisreads(rows);
-      // v0.23: OCR候補を増やした副作用で本文の数字が台番化することがある。
+      // v0.24: OCR候補を増やした副作用で本文の数字が台番化することがある。
       // その画像群で支配的な百番台だけを残し、144/260等の異常台番を除外する。
       const bandFiltered=filterDominantMachineBand(cleanedRows);
       cleanedRows=bandFiltered.rows;
+      const clusterFiltered=filterSparseMachineClusters(cleanedRows);
+      cleanedRows=clusterFiltered.rows;
       cleanedRows.sort((a,b)=>a.machine-b.machine);
       const cleanedSet=new Set(cleanedRows.map(r=>Number(r.machine)));
       const rawDetected=[...new Set([...detectedMachineSet,...evidenceMap.keys()].map(Number).filter(Number.isFinite))];
       const detectedMachines=rawDetected
         .filter(m=>!Number.isInteger(bandFiltered.hundred) || Math.floor(Number(m)/100)===bandFiltered.hundred)
-        .filter(m=>cleanedSet.has(m) || !rows.some(r=>Number(r.machine)===m))
+        .filter(m=>cleanedSet.has(m))
         .sort((a,b)=>a-b);
       if(bandFiltered.dropped.length){
         console.warn('台番帯フィルタで除外',bandFiltered.dropped.map(r=>r.machine));
+      }
+      if(clusterFiltered.dropped.length){
+        console.warn('孤立台番フィルタで除外',clusterFiltered.dropped.map(r=>r.machine));
       }
       applyParsedRows(cleanedRows,'ocr',detectedMachines);
       $('ocrRawText').textContent=allText.join('\n\n');
