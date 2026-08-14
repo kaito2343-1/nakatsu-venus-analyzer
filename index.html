@@ -149,7 +149,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.17</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.18</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -333,7 +333,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
             <button id="ghCopyUrlBtn" class="secondary">公開履歴URLをコピー</button>
           </div>
           <div id="ghStatus" class="cloud-status"><strong>未設定</strong>GitHub Tokenを入力して接続テストしてください。</div>
-          <div class="cloud-warning">トークンはこのリポジトリだけに限定し、Repository permissions は Contents: Read and write のみにしてください。「端末に保存」をOFFにした場合、トークンは現在のブラウザセッションだけ保持します。</div>
+          <div class="cloud-warning">トークンはこのリポジトリだけに限定し、Repository permissions は Contents: Read and write のみにしてください。「端末に保存」をOFFにした場合、トークンは現在のブラウザセッションだけ保持します。ホーム画面版で履歴が空の場合は、公開履歴から自動復元します。</div>
         </div>
       </section>
 
@@ -957,7 +957,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       const left=grayL/Math.max(1,totalL);
       const right=grayR/Math.max(1,totalR);
       rowStats[y]={whole,left,right};
-      // v0.17: 530番のような「片側だけ灰色」の単独カード帯も拾う。
+      // v0.18: 530番のような「片側だけ灰色」の単独カード帯も拾う。
       hits[y]=whole>.60 || left>.60 || right>.60;
     }
     const bands=[];
@@ -1091,7 +1091,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const pitch=Math.round(median(diffs)||298);
 
     // 固定台番プロファイルだけ旧来の固定補完を使う。
-    // v0.17: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
+    // v0.18: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
     if (C.getProfile().fixedMachines) {
       for (const r of rows) {
         const l=r.left?.machine ?? null, rr=r.right?.machine ?? null;
@@ -1110,100 +1110,104 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
     } else {
-      // v0.17:
-      // ・501番のような「戻る」付き横長1台をfull-widthとして扱う
-      // ・530番のような片側だけ灰色の単独台をその片側だけで扱う
-      // ・実在する灰色カード行の中だけ欠番復元する
-      fillAnchoredDynamicGaps(rows);
-
+      // v0.18: 台番は「同じ物理カード位置」に直接ひも付ける。
+      // 完全に台番を落とした行は、前後アンカーが連番として一致する場合だけ補完する。
+      // 470→481のような台番ジャンプは絶対に471/472へ変換しない。
       const bandHasBack=(band)=>allWords.some(w=>
         /戻/.test(w.raw||'') && w.cy>=band.y0-10 && w.cy<=band.y1+10
       );
-      const nextLeftMachine=(idx)=>{
-        for (let j=idx+1;j<rows.length;j++) {
-          const m=rows[j].left?.machine;
-          if (Number.isInteger(m)) return m;
-          if (rows[j].left || rows[j].right) break;
-        }
-        return null;
-      };
-      const prevRightMachine=(idx)=>{
-        for (let j=idx-1;j>=0;j--) {
-          const m=rows[j].right?.machine;
-          if (Number.isInteger(m)) return m;
-          if (rows[j].left || rows[j].right) break;
-        }
-        return null;
-      };
 
+      // まず各灰色帯が「横長1台」「左だけ1台」「右だけ1台」「左右2台」のどれかを確定。
       for (let i=0;i<rows.length;i++) {
-        const hasBody=bodyLooksLikeMachineRow(allWords,bands,i,width,height,pitch);
-        if (!hasBody) continue;
-
-        const band=rows[i].band;
-        let l=rows[i].left?.machine ?? null;
-        let rr=rows[i].right?.machine ?? null;
+        const r=rows[i], band=r.band;
+        r._hasBody=bodyLooksLikeMachineRow(allWords,bands,i,width,height,pitch);
+        if (!r._hasBody) continue;
         const hasBack=bandHasBack(band);
+        r._singleFull=!!(band.fullGray && hasBack);
+        r._singleLeft=!!(!r._singleFull && band.leftGray && !band.rightGray);
+        r._singleRight=!!(!r._singleFull && band.rightGray && !band.leftGray);
 
-        // ページ先頭の横長1台（例:501）。
-        if (band.fullGray && hasBack && (l || rr) && !(l && rr)) {
-          rows[i]._singleFull=true;
-          if (!l && rr) {
-            rows[i].left=rows[i].right;
-            rows[i].right=null;
-          }
+        // 横長1台ではOCR位置が左右どちらに寄っても1台として扱う。
+        if (r._singleFull) {
+          if (!r.left && r.right) r.left=r.right;
+          r.right=null;
           continue;
         }
 
-        // 片側だけ灰色の単独カード（例:530）。
-        if (band.leftGray && !band.rightGray) {
-          rows[i]._singleLeft=true;
-          if (!l && i>0) {
-            const p=rows[i-1];
-            const pl=p.left?.machine, pr=p.right?.machine;
-            if (Number.isInteger(pl) && Number.isInteger(pr) && pr===pl+1 && C.isValidMachine(pr+1)) {
-              rows[i].left={machine:pr+1,_score:0,_inferred:true,_visualRow:true};
-            }
-          }
-          rows[i].right=null;
-          continue;
-        }
-        if (band.rightGray && !band.leftGray) {
-          rows[i]._singleRight=true;
-          rows[i].left=null;
-          continue;
-        }
+        // 片側だけ実在する行は、反対側を作らない。
+        if (r._singleLeft) { r.right=null; continue; }
+        if (r._singleRight) { r.left=null; continue; }
 
-        // 通常の左右2台行。片側を落とした時は前後アンカーを優先する。
-        if (l && !rr) {
-          const nl=nextLeftMachine(i);
-          if (Number.isInteger(nl) && nl>l && C.isValidMachine(nl-1)) {
-            rows[i].right={machine:nl-1,_score:0,_inferred:true,_visualRow:true};
-          } else if (C.isValidMachine(l+1)) {
-            rows[i].right={machine:l+1,_score:0,_inferred:true,_visualRow:true};
-          }
+        // 通常の左右2台行は、片側の台番が直接読めた時だけ同一行の隣を±1で補完。
+        // 同じ灰色帯の左右は実際の連番カードなので、ここは安全に補完できる。
+        const l=r.left?.machine ?? null, rr=r.right?.machine ?? null;
+        if (Number.isInteger(l) && !Number.isInteger(rr) && C.isValidMachine(l+1)) {
+          r.right={machine:l+1,_score:0,_inferred:true,_sameRow:true};
+        } else if (Number.isInteger(rr) && !Number.isInteger(l) && C.isValidMachine(rr-1)) {
+          r.left={machine:rr-1,_score:0,_inferred:true,_sameRow:true};
         }
-        if (rr && !l) {
-          const pr=prevRightMachine(i);
-          if (Number.isInteger(pr) && rr>pr && C.isValidMachine(pr+1)) {
-            rows[i].left={machine:pr+1,_score:0,_inferred:true,_visualRow:true};
-          } else if (C.isValidMachine(rr-1)) {
-            rows[i].left={machine:rr-1,_score:0,_inferred:true,_visualRow:true};
+      }
+
+      // ページ先頭の横長1台（450/501等）の台番を落とした場合だけ、
+      // 直後の左右2台行が読めていれば「その1つ前」として復元する。
+      for (let i=0;i<rows.length;i++) {
+        const r=rows[i];
+        if (!r._hasBody || !r._singleFull || r.left?.machine) continue;
+        for (let j=i+1;j<rows.length;j++) {
+          const n=rows[j];
+          if (!n._hasBody) continue;
+          if (n._singleFull || n._singleLeft || n._singleRight) break;
+          const l=n.left?.machine, rr=n.right?.machine;
+          if (Number.isInteger(l) && Number.isInteger(rr) && rr===l+1 && C.isValidMachine(l-1)) {
+            r.left={machine:l-1,_score:0,_inferred:true,_topSingle:true};
           }
+          break;
         }
+      }
 
-        l=rows[i].left?.machine ?? null;
-        rr=rows[i].right?.machine ?? null;
+      // 530のような「左側だけ実カード」の末尾1台は、直前の左右2台が直接/同一行補完で
+      // 連番と確認できた時だけその次を採用する。
+      for (let i=0;i<rows.length;i++) {
+        const r=rows[i];
+        if (!r._hasBody || !r._singleLeft || r.left?.machine || i===0) continue;
+        const p=rows[i-1];
+        const pl=p?.left?.machine, pr=p?.right?.machine;
+        if (Number.isInteger(pl) && Number.isInteger(pr) && pr===pl+1 && C.isValidMachine(pr+1)) {
+          r.left={machine:pr+1,_score:0,_inferred:true,_endSingle:true};
+        }
+      }
 
-        // 行そのものは実在し、直前が連番2台なら次の2台だけ視覚補完。
-        if (!l && !rr && i>0 && band.fullGray) {
-          const p=rows[i-1];
-          const pl=p.left?.machine, pr=p.right?.machine;
-          if (Number.isInteger(pl) && Number.isInteger(pr) && pr===pl+1 &&
-              C.isValidMachine(pl+2) && C.isValidMachine(pr+2)) {
-            rows[i].left={machine:pl+2,_score:0,_inferred:true,_visualRow:true};
-            rows[i].right={machine:pr+2,_score:0,_inferred:true,_visualRow:true};
-          }
+      // 完全に台番を落とした通常行は「前後の実在アンカーが連続している」場合だけ埋める。
+      // 物理スロット列を作り、アンカー間の台番差とスロット数が一致しなければ何もしない。
+      const slots=[];
+      for (let i=0;i<rows.length;i++) {
+        const r=rows[i];
+        if (!r._hasBody) continue;
+        if (r._singleFull || r._singleLeft) {
+          slots.push({row:i,side:'left'});
+        } else if (r._singleRight) {
+          slots.push({row:i,side:'right'});
+        } else {
+          slots.push({row:i,side:'left'});
+          slots.push({row:i,side:'right'});
+        }
+      }
+      const known=[];
+      for (let i=0;i<slots.length;i++) {
+        const sl=slots[i], m=rows[sl.row][sl.side]?.machine;
+        if (Number.isInteger(m)) known.push({idx:i,machine:m});
+      }
+      for (let k=0;k<known.length-1;k++) {
+        const a=known[k], b=known[k+1];
+        const di=b.idx-a.idx, dm=b.machine-a.machine;
+        if (di<=1 || Math.abs(dm)!==di) continue;
+        const step=dm>0?1:-1;
+        for (let q=a.idx+1;q<b.idx;q++) {
+          const sl=slots[q];
+          if (rows[sl.row][sl.side]?.machine) continue;
+          const machine=a.machine+step*(q-a.idx);
+          if (!C.isValidMachine(machine)) continue;
+          rows[sl.row][sl.side]={machine,_score:0,_inferred:true,_anchored:true};
         }
       }
     }
@@ -1873,19 +1877,55 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     if(!silent) toast('クラウド同期しました');
     return true;
   }
-  async function cloudRestore() {
-    captureCloudSettingsFromUi();
-    const {owner,repo,branch,path}=cloudSettings;
-    const apiPath=`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${String(path).split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(branch)}`;
-    const file=await githubApi(apiPath);
-    const payload=JSON.parse(base64ToUtf8(file.content));
+  function hasAnyLocalHistory() {
+    const a=readStoreKey(MY_STORAGE_KEY), b=readStoreKey(GOGO_STORAGE_KEY);
+    return Object.keys(a.days||{}).length>0 || Object.keys(b.days||{}).length>0;
+  }
+  async function fetchPublicCloudPayload() {
+    const res=await fetch(githubPublicUrl()+`?t=${Date.now()}`,{cache:'no-store'});
+    if(!res.ok) throw new Error(`公開履歴を取得できません (${res.status})`);
+    const payload=await res.json();
     if(payload.format!=='nakatsu-venus-public-history-v1') throw new Error('クラウドデータ形式が違います');
-    if(!confirm('クラウドの履歴で、この端末のマイジャグ・ゴージャグ履歴を置き換えますか？')) return;
+    return payload;
+  }
+  function applyCloudPayload(payload) {
     localStorage.setItem(MY_STORAGE_KEY,JSON.stringify(payload.myjuggler5 || {version:1,days:{}}));
     localStorage.setItem(GOGO_STORAGE_KEY,JSON.stringify(payload.gogo3 || {version:1,days:{}}));
+    cloudSettings.lastSync=payload.updatedAt || new Date().toISOString();
+    saveCloudSettings();
+  }
+  async function autoRestoreCloudIfEmpty() {
+    if(hasAnyLocalHistory()) return false;
+    try {
+      const payload=await fetchPublicCloudPayload();
+      const myDays=Object.keys(payload.myjuggler5?.days||{}).length;
+      const goDays=Object.keys(payload.gogo3?.days||{}).length;
+      if(!myDays && !goDays) return false;
+      applyCloudPayload(payload);
+      if (isDynamicMachineMode()) {
+        const d=readStoreKey(storageKey()).days?.[$('dateInput').value] || [];
+        syncDynamicMachinesFromStore(d.map(r=>r.machine));
+      }
+      loadDay($('dateInput').value);
+      renderHistory(); renderAnalysis(); renderCloudSettings();
+      toast(`クラウド履歴を自動復元しました（マイ${myDays}日・ゴー${goDays}日）`);
+      return true;
+    } catch(e) {
+      console.warn('auto cloud restore skipped',e);
+      return false;
+    }
+  }
+  async function cloudRestore() {
+    captureCloudSettingsFromUi();
+    const payload=await fetchPublicCloudPayload();
+    if(!confirm('クラウドの履歴で、この端末のマイジャグ・ゴージャグ履歴を置き換えますか？')) return;
+    applyCloudPayload(payload);
+    if (isDynamicMachineMode()) {
+      const d=readStoreKey(storageKey()).days?.[$('dateInput').value] || [];
+      syncDynamicMachinesFromStore(d.map(r=>r.machine));
+    }
     loadDay($('dateInput').value);
-    renderHistory();
-    renderAnalysis();
+    renderHistory(); renderAnalysis(); renderCloudSettings();
     toast('クラウドから復元しました');
   }
   async function copyPublicHistoryUrl() {
@@ -2030,6 +2070,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     $('dateInput').value=todayLocal();
     if (isDynamicMachineMode()) syncDynamicMachinesFromStore();
     updateMachineUi(); initMachineSelect(); renderSpec(); renderSettings(); bindEvents(); loadDay($('dateInput').value); renderHistory(); renderSelectedPreviews(); registerSW();
+    setTimeout(()=>autoRestoreCloudIfEmpty(),350);
   }
   init();
 })();
