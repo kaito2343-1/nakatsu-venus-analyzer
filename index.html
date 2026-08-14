@@ -149,7 +149,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.19</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.20</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -957,7 +957,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       const left=grayL/Math.max(1,totalL);
       const right=grayR/Math.max(1,totalR);
       rowStats[y]={whole,left,right};
-      // v0.19: 530番のような「片側だけ灰色」の単独カード帯も拾う。
+      // v0.20: 530番のような「片側だけ灰色」の単独カード帯も拾う。
       hits[y]=whole>.60 || left>.60 || right>.60;
     }
     const bands=[];
@@ -991,6 +991,25 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
         s=last=null;
       }
+    }
+    // v0.20: 灰色ヘッダーの下に「画面中央の縦罫線」が続くかを測る。
+    // 450/501のような横長1台は中央罫線がほぼ無く、451/452のような左右2台行は中央罫線が濃い。
+    for (let i=0;i<bands.length;i++) {
+      const b=bands[i];
+      const nextY=(i+1<bands.length && bands[i+1].y0-b.y0<450) ? bands[i+1].y0 : Math.min(canvas.height,b.y0+320);
+      const y0=Math.min(canvas.height-1,b.y1+5);
+      const y1=Math.max(y0+1,Math.min(canvas.height,nextY-5));
+      let dark=0,total=0;
+      const cx=Math.round(canvas.width/2);
+      for (let y=y0;y<y1;y+=2) {
+        for (let x=Math.max(0,cx-4);x<=Math.min(canvas.width-1,cx+4);x+=2) {
+          const p=(y*canvas.width+x)*4;
+          const r=data[p],g=data[p+1],bb=data[p+2];
+          if (Math.max(r,g,bb)<105) dark++;
+          total++;
+        }
+      }
+      b.centerDividerRatio=dark/Math.max(1,total);
     }
     return {bands,width:canvas.width,height:canvas.height};
   }
@@ -1091,7 +1110,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const pitch=Math.round(median(diffs)||298);
 
     // 固定台番プロファイルだけ旧来の固定補完を使う。
-    // v0.19: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
+    // v0.20: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
     if (C.getProfile().fixedMachines) {
       for (const r of rows) {
         const l=r.left?.machine ?? null, rr=r.right?.machine ?? null;
@@ -1110,7 +1129,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
     } else {
-      // v0.19: 台番は「同じ物理カード位置」に直接ひも付ける。
+      // v0.20: 台番は「同じ物理カード位置」に直接ひも付ける。
       // 完全に台番を落とした行は、前後アンカーが連番として一致する場合だけ補完する。
       // 470→481のような台番ジャンプは絶対に471/472へ変換しない。
       const bandHasBack=(band)=>allWords.some(w=>
@@ -1123,7 +1142,9 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         r._hasBody=bodyLooksLikeMachineRow(allWords,bands,i,width,height,pitch);
         if (!r._hasBody) continue;
         const hasBack=bandHasBack(band);
-        r._singleFull=!!(band.fullGray && hasBack);
+        // v0.20: 「戻る」のOCR成否に依存せず、中央罫線の有無で横長1台を判定。
+        // 0.26未満なら中央の左右分割線が弱い＝450/501型の1台カード。
+        r._singleFull=!!(band.fullGray && (band.centerDividerRatio ?? 1) < .26);
         r._singleLeft=!!(!r._singleFull && band.leftGray && !band.rightGray);
         r._singleRight=!!(!r._singleFull && band.rightGray && !band.leftGray);
 
@@ -1146,6 +1167,55 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         } else if (Number.isInteger(rr) && !Number.isInteger(l) && C.isValidMachine(rr-1)) {
           r.left={machine:rr-1,_score:0,_inferred:true,_sameRow:true};
         }
+      }
+
+      // v0.20: 左右2台行で両方のOCR台番が読めても連番でない場合は整合性を修正する。
+      // 例: 489を479と誤読し右側490が正しい場合、直前487/488から489/490へ戻す。
+      for (let i=0;i<rows.length;i++) {
+        const r=rows[i];
+        if (!r._hasBody || r._singleFull || r._singleLeft || r._singleRight) continue;
+        const l=r.left?.machine, rr=r.right?.machine;
+        if (!Number.isInteger(l) || !Number.isInteger(rr) || rr===l+1) continue;
+
+        let fixed=false;
+        // 直前の正常な左右2台行から連続する場合を最優先。台番ジャンプ行は、現在行が既に連番ならここに来ない。
+        for (let j=i-1;j>=0;j--) {
+          const p=rows[j];
+          if (!p._hasBody) continue;
+          const pl=p.left?.machine, pr=p.right?.machine;
+          if (Number.isInteger(pl) && Number.isInteger(pr) && pr===pl+1) {
+            const expectedL=pr+1, expectedR=pr+2;
+            if (rr===expectedR && C.isValidMachine(expectedL)) {
+              r.left={machine:expectedL,_score:0,_inferred:true,_pairFixed:true}; fixed=true;
+            } else if (l===expectedL && C.isValidMachine(expectedR)) {
+              r.right={machine:expectedR,_score:0,_inferred:true,_pairFixed:true}; fixed=true;
+            }
+          }
+          break;
+        }
+        if (fixed) continue;
+
+        // 次の正常行から逆向きに確定できる場合。
+        for (let j=i+1;j<rows.length;j++) {
+          const n=rows[j];
+          if (!n._hasBody) continue;
+          const nl=n.left?.machine, nr=n.right?.machine;
+          if (Number.isInteger(nl) && Number.isInteger(nr) && nr===nl+1) {
+            const expectedL=nl-2, expectedR=nl-1;
+            if (rr===expectedR && C.isValidMachine(expectedL)) {
+              r.left={machine:expectedL,_score:0,_inferred:true,_pairFixed:true}; fixed=true;
+            } else if (l===expectedL && C.isValidMachine(expectedR)) {
+              r.right={machine:expectedR,_score:0,_inferred:true,_pairFixed:true}; fixed=true;
+            }
+          }
+          break;
+        }
+        if (fixed) continue;
+
+        // 周囲で確定できない時だけ、OCR信頼度が高い側を残して同一行の±1にする。
+        const ls=Number(r.left?._score||0), rs=Number(r.right?._score||0);
+        if (rs>ls && C.isValidMachine(rr-1)) r.left={machine:rr-1,_score:0,_inferred:true,_pairFixed:true};
+        else if (C.isValidMachine(l+1)) r.right={machine:l+1,_score:0,_inferred:true,_pairFixed:true};
       }
 
       // ページ先頭の横長1台（450/501等）の台番を落とした場合だけ、
@@ -1198,7 +1268,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         if (Number.isInteger(m)) known.push({idx:i,machine:m});
       }
 
-      // v0.19: ページ先頭側だけ台番OCRを落とした場合の逆向き救済。
+      // v0.20: ページ先頭側だけ台番OCRを落とした場合の逆向き救済。
       // 例: 450(横長),451,452 が読めず 453 が最初のアンカーでも、
       // その上に「実データカード」が3スロット実在していれば 450/451/452 と復元する。
       // 画像にカード自体がない番号は作らない。先頭8スロット以内だけに限定して暴走を防ぐ。
@@ -1462,7 +1532,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     return {evidence:extractCardEvidence(words,d2), text:result.data.text||''};
   }
 
-  // v0.19: 画面上端カード向けの最終救済。
+  // v0.20: 画面上端カード向けの最終救済。
   // カード全体OCRで数値が混ざる場合に、総G・BB・REGを別々の小領域としてOCRする。
   async function retryCardFields(worker,file,d) {
     const img=await loadImageForPixels(file);
@@ -1709,7 +1779,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
 
-      // v0.19: それでも未解決の「画像上端6カード」だけ、3項目を個別OCRする。
+      // v0.20: それでも未解決の「画像上端6カード」だけ、3項目を個別OCRする。
       const fieldFallback=new Map();
       const fieldSeen=new Set();
       let fieldRetries=0;
