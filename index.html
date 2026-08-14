@@ -133,6 +133,10 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 .preview-card img { display:block; width:100%; height:220px; object-fit:contain; background:#05080d; }
 .preview-card span { display:block; padding:7px 8px; font-size:10px; color:var(--muted); text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .preview-note { margin-top:8px !important; }
+.precision-row { display:flex; align-items:flex-start; gap:9px; margin-top:10px; padding:10px 12px; border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.025); }
+.precision-row input { margin-top:2px; transform:scale(1.15); }
+.precision-row strong { display:block; font-size:12px; }
+.precision-row small { display:block; color:var(--muted); font-size:10px; line-height:1.45; margin-top:2px; }
 .preview-dialog-card { width:min(94vw,760px); max-height:90vh; display:flex; flex-direction:column; }
 .preview-full { display:block; max-width:100%; max-height:78vh; object-fit:contain; margin:0 auto; border-radius:12px; background:#05080d; }
 .dynamic-empty { text-align:center !important; color:var(--muted); padding:24px 12px !important; white-space:normal !important; }
@@ -149,7 +153,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.21</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.22</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -200,7 +204,11 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
           <button id="runOcrBtn" class="primary" disabled>OCRして反映</button>
           <button id="pasteImportBtn" class="secondary">テキスト/CSV取込</button>
         </div>
-        <p class="hint">OCRは読み間違いがあり得ます。怪しい行は黄色で「要確認」にします。</p>
+        <label class="precision-row" for="precisionOcr">
+          <input id="precisionOcr" type="checkbox" checked>
+          <span><strong>高精度モード（推奨）</strong><small>台番を2方式、数値を複数方式で再読取し、表示確率との整合性も確認します。通常より時間はかかります。</small></span>
+        </label>
+        <p class="hint">OCRは読み間違いがあり得ます。複数読取で一致しない行は黄色で「要確認」にします。</p>
       </section>
 
       <section class="panel">
@@ -690,9 +698,9 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
   function loadSettings() {
     try {
       const s = JSON.parse(localStorage.getItem(SETTINGS_KEY));
-      if (s && Array.isArray(s.priors) && s.priors.length === 6) return { ...s, machineType:s.machineType || 'myjuggler5' };
+      if (s && Array.isArray(s.priors) && s.priors.length === 6) return { ...s, machineType:s.machineType || 'myjuggler5', highPrecisionOcr:s.highPrecisionOcr !== false };
     } catch {}
-    return { priorPreset:'equal', priors:[1,1,1,1,1,1], machineType:'myjuggler5' };
+    return { priorPreset:'equal', priors:[1,1,1,1,1,1], machineType:'myjuggler5', highPrecisionOcr:true };
   }
   function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(appSettings)); }
   function loadCloudSettings() {
@@ -957,7 +965,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       const left=grayL/Math.max(1,totalL);
       const right=grayR/Math.max(1,totalR);
       rowStats[y]={whole,left,right};
-      // v0.21: 530番のような「片側だけ灰色」の単独カード帯も拾う。
+      // v0.22: 530番のような「片側だけ灰色」の単独カード帯も拾う。
       hits[y]=whole>.60 || left>.60 || right>.60;
     }
     const bands=[];
@@ -992,7 +1000,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         s=last=null;
       }
     }
-    // v0.21: 灰色ヘッダーの下に「画面中央の縦罫線」が続くかを測る。
+    // v0.22: 灰色ヘッダーの下に「画面中央の縦罫線」が続くかを測る。
     // 450/501のような横長1台は中央罫線がほぼ無く、451/452のような左右2台行は中央罫線が濃い。
     for (let i=0;i<bands.length;i++) {
       const b=bands[i];
@@ -1110,7 +1118,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const pitch=Math.round(median(diffs)||298);
 
     // 固定台番プロファイルだけ旧来の固定補完を使う。
-    // v0.21: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
+    // v0.22: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
     if (C.getProfile().fixedMachines) {
       for (const r of rows) {
         const l=r.left?.machine ?? null, rr=r.right?.machine ?? null;
@@ -1129,7 +1137,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
     } else {
-      // v0.21: 台番は「同じ物理カード位置」に直接ひも付ける。
+      // v0.22: 台番は「同じ物理カード位置」に直接ひも付ける。
       // 完全に台番を落とした行は、前後アンカーが連番として一致する場合だけ補完する。
       // 470→481のような台番ジャンプは絶対に471/472へ変換しない。
       const bandHasBack=(band)=>allWords.some(w=>
@@ -1142,7 +1150,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         r._hasBody=bodyLooksLikeMachineRow(allWords,bands,i,width,height,pitch);
         if (!r._hasBody) continue;
         const hasBack=bandHasBack(band);
-        // v0.21: 「戻る」のOCR成否に依存せず、中央罫線の有無で横長1台を判定。
+        // v0.22: 「戻る」のOCR成否に依存せず、中央罫線の有無で横長1台を判定。
         // 0.26未満なら中央の左右分割線が弱い＝450/501型の1台カード。
         r._singleFull=!!(band.fullGray && (band.centerDividerRatio ?? 1) < .26);
         r._singleLeft=!!(!r._singleFull && band.leftGray && !band.rightGray);
@@ -1169,7 +1177,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
 
-      // v0.21: 左右2台行で両方のOCR台番が読めても連番でない場合は整合性を修正する。
+      // v0.22: 左右2台行で両方のOCR台番が読めても連番でない場合は整合性を修正する。
       // 例: 489を479と誤読し右側490が正しい場合、直前487/488から489/490へ戻す。
       for (let i=0;i<rows.length;i++) {
         const r=rows[i];
@@ -1268,7 +1276,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         if (Number.isInteger(m)) known.push({idx:i,machine:m});
       }
 
-      // v0.21: ページ先頭側だけ台番OCRを落とした場合の逆向き救済。
+      // v0.22: ページ先頭側だけ台番OCRを落とした場合の逆向き救済。
       // 例: 450(横長),451,452 が読めず 453 が最初のアンカーでも、
       // その上に「実データカード」が3スロット実在していれば 450/451/452 と復元する。
       // 画像にカード自体がない番号は作らない。先頭8スロット以内だけに限定して暴走を防ぐ。
@@ -1490,7 +1498,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     };
   }
 
-  // v0.21: スクロールを分割して撮った画像の重複部分で、469→479のように十の位だけ誤読するケースを除外。
+  // v0.22: スクロールを分割して撮った画像の重複部分で、469→479のように十の位だけ誤読するケースを除外。
   // 総G・BB・REGが完全一致し、台番差が10で、片方が画像上端の低品質カードだった場合だけ発動する。
   function removeLikelyOverlapMisreads(rows) {
     const out=[...rows];
@@ -1517,6 +1525,77 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       }
     }
     return out.filter(r=>!drop.has(Number(r.machine)));
+  }
+
+  async function retryHeaderMachineWords(worker,file,bandsInfo,threshold=195) {
+    if (!bandsInfo?.bands?.length) return [];
+    const img=await loadImageForPixels(file);
+    const iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height;
+    const scale=1.7;
+    const canvas=document.createElement('canvas');
+    canvas.width=Math.round(iw*scale); canvas.height=Math.round(ih*scale);
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    const im=ctx.getImageData(0,0,canvas.width,canvas.height), px=im.data;
+    const bands=bandsInfo.bands;
+    let bi=0;
+    for(let y=0;y<canvas.height;y++){
+      const oy=y/scale;
+      while(bi<bands.length && oy>bands[bi].y1+3) bi++;
+      const inBand=bi<bands.length && oy>=bands[bi].y0-3 && oy<=bands[bi].y1+3;
+      for(let x=0;x<canvas.width;x++){
+        const p=(y*canvas.width+x)*4;
+        if(!inBand){ px[p]=px[p+1]=px[p+2]=255; continue; }
+        const lum=px[p]*.299+px[p+1]*.587+px[p+2]*.114;
+        const v=lum>=threshold ? 0 : 255;
+        px[p]=px[p+1]=px[p+2]=v;
+      }
+    }
+    ctx.putImageData(im,0,0);
+    await worker.setParameters({
+      tessedit_pageseg_mode:'11',
+      tessedit_char_whitelist:'0123456789',
+      preserve_interword_spaces:'1',
+      user_defined_dpi:'300',
+    });
+    const result=await worker.recognize(canvas,{rotateAuto:false},{text:true,tsv:true,blocks:false});
+    await worker.setParameters({
+      tessedit_pageseg_mode:'11', tessedit_char_whitelist:'', preserve_interword_spaces:'1', user_defined_dpi:'300',
+    });
+    const words=parseTsvWords(result.data.tsv||'');
+    const out=[];
+    for(const w of words){
+      if(!w.digits || w.digits.length<3) continue;
+      const m=Number(w.digits.slice(0,3));
+      if(!C.isValidMachine(m)) continue;
+      const ow={...w,x0:w.x0/scale,x1:w.x1/scale,y0:w.y0/scale,y1:w.y1/scale,cx:w.cx/scale,cy:w.cy/scale,w:w.w/scale,h:w.h/scale,machine:m,_score:150+(w.confidence||0)};
+      if(bands.some(b=>ow.cy>=b.y0-8 && ow.cy<=b.y1+8)) out.push(ow);
+    }
+    return out;
+  }
+
+  function consensusMachineWords(base,a,b,bands,width) {
+    const slot=(w)=>{
+      const idx=bands.findIndex(x=>w.cy>=x.y0-8 && w.cy<=x.y1+8);
+      if(idx<0) return null;
+      return idx+':' +(w.cx<width/2?'L':'R');
+    };
+    const groups=new Map();
+    for(const [src,list] of [['base',base||[]],['a',a||[]],['b',b||[]]]){
+      for(const w of list){ const k=slot(w); if(!k) continue; if(!groups.has(k))groups.set(k,[]); groups.get(k).push({src,w}); }
+    }
+    const out=[];
+    for(const items of groups.values()){
+      const votes=new Map();
+      for(const it of items){ const m=Number(it.w.machine); const wt=it.src==='base'?1:1.35; votes.set(m,(votes.get(m)||0)+wt); }
+      const ranked=[...votes.entries()].sort((x,y)=>y[1]-x[1]);
+      const winner=ranked[0]?.[0];
+      if(!Number.isInteger(winner)) continue;
+      const chosen=items.filter(x=>Number(x.w.machine)===winner).sort((x,y)=>(y.w._score||0)-(x.w._score||0))[0]?.w;
+      if(chosen) out.push({...chosen,machine:winner,_score:(chosen._score||0)+80});
+    }
+    return out.sort((x,y)=>x.cy-y.cy||x.cx-y.cx);
   }
 
   function parseOcrEvidence(tsv,bandsInfo) {
@@ -1562,7 +1641,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     return {evidence:extractCardEvidence(words,d2), text:result.data.text||''};
   }
 
-  // v0.21: 画面上端カード向けの最終救済。
+  // v0.22: 画面上端カード向けの最終救済。
   // カード全体OCRで数値が混ざる場合に、総G・BB・REGを別々の小領域としてOCRする。
   async function retryCardFields(worker,file,d) {
     const img=await loadImageForPixels(file);
@@ -1676,6 +1755,39 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     return evidence;
   }
 
+  async function retryImageBinaryEvidence(worker,file,cards) {
+    if (!cards?.length) return [];
+    const img=await loadImageForPixels(file);
+    const iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height;
+    const scale=iw<1500 ? 1.75 : 1.2;
+    const canvas=document.createElement('canvas');
+    canvas.width=Math.round(iw*scale); canvas.height=Math.round(ih*scale);
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    const im=ctx.getImageData(0,0,canvas.width,canvas.height), px=im.data;
+    for(let i=0;i<px.length;i+=4){
+      const g=px[i]*.299+px[i+1]*.587+px[i+2]*.114;
+      const v=g<178?0:255; px[i]=px[i+1]=px[i+2]=v;
+    }
+    ctx.putImageData(im,0,0);
+    await worker.setParameters({tessedit_pageseg_mode:'11',tessedit_char_whitelist:'0123456789,/',preserve_interword_spaces:'1',user_defined_dpi:'300'});
+    const result=await worker.recognize(canvas,{rotateAuto:false},{text:true,tsv:true,blocks:false});
+    await worker.setParameters({tessedit_pageseg_mode:'11',tessedit_char_whitelist:'',preserve_interword_spaces:'1',user_defined_dpi:'300'});
+    const words=parseTsvWords(result.data.tsv||'');
+    return cards.map(d=>extractCardEvidence(words,{machine:d.machine,xL:d.xL*scale,xR:d.xR*scale,yT:d.yT*scale,yB:d.yB*scale,headerInferred:d.headerInferred}));
+  }
+
+  function rowRateAgreement(row,evidenceList) {
+    if(!row || !(row.games>0)) return 0;
+    const br=dedupeCandidates((evidenceList||[]).flatMap(e=>e.bbRates||[]),x=>x.den).slice(0,4);
+    const cr=dedupeCandidates((evidenceList||[]).flatMap(e=>e.combRates||[]),x=>x.den).slice(0,4);
+    let score=0;
+    if(row.bb>0 && br.some(x=>Math.round(row.games/row.bb)===x.den)) score++;
+    if(row.bb+row.rb>0 && cr.some(x=>Math.round(row.games/(row.bb+row.rb))===x.den)) score++;
+    return score;
+  }
+
   async function getOcrWorker() {
     if (ocrWorker) return ocrWorker;
     if (!window.Tesseract) throw new Error('OCRライブラリを読み込めません。通信を確認してください。');
@@ -1727,8 +1839,21 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         const text=result.data.text||'';
         const detectedType=detectedMachineTypeFromText(text);
         if (detectedType) detectedTypes.add(detectedType);
-        const parsed=parseOcrEvidence(result.data.tsv||'',bandsInfo);
-        // v0.21: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
+        let parsed=parseOcrEvidence(result.data.tsv||'',bandsInfo);
+        if (appSettings.highPrecisionOcr !== false) {
+          try {
+            setOcrProgress(`画像 ${i+1}/${selectedFiles.length}・台番を精密確認`,18);
+            const h1=await retryHeaderMachineWords(worker,selectedFiles[i],bandsInfo,190);
+            const h2=await retryHeaderMachineWords(worker,selectedFiles[i],bandsInfo,210);
+            const merged=consensusMachineWords(parsed.machineWords,h1,h2,bandsInfo.bands,bandsInfo.width);
+            if(merged.length){
+              const cards=buildCardDescriptors(merged,bandsInfo.bands,bandsInfo.width,bandsInfo.height,parsed.words);
+              parsed={...parsed,machineWords:merged,cards,evidence:cards.map(d=>extractCardEvidence(parsed.words,d))};
+            }
+          } catch(e) { console.warn('precision header retry failed',e); }
+        }
+        // v0.22: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
+        // v0.22: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
         // 後段の重複排除に使うため、各カードの「画像端からの距離」を証拠へ保存する。
         for (let ei=0;ei<parsed.evidence.length;ei++) {
           const d=parsed.cards[ei];
@@ -1774,10 +1899,11 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       for (let i=0;i<imageParses.length;i++) {
         const ip=imageParses[i];
         const unresolvedCards=ip.parsed.cards.filter(d=>!resolved1.has(d.machine));
-        if (!unresolvedCards.length) continue;
-        setOcrProgress(`画像 ${i+1}/${imageParses.length}・数字を再確認`,Math.min(96,70+Math.round((i+1)/imageParses.length*20)));
+        const numericTargets=appSettings.highPrecisionOcr !== false ? ip.parsed.cards : unresolvedCards;
+        if (!numericTargets.length) continue;
+        setOcrProgress(`画像 ${i+1}/${imageParses.length}・数字を再確認`,Math.min(96,68+Math.round((i+1)/imageParses.length*18)));
         try {
-          const ev2=await retryImageNumericEvidence(worker,ip.file,unresolvedCards);
+          const ev2=await retryImageNumericEvidence(worker,ip.file,numericTargets);
           for (const e of ev2) {
             if (!evidenceMap.has(e.machine)) evidenceMap.set(e.machine,[]);
             evidenceMap.get(e.machine).push(e);
@@ -1792,6 +1918,19 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       for (const [machine,evidence] of evidenceMap.entries()) {
         const row=resolveMachineEvidence(evidence);
         if (row) resolved2.set(machine,row);
+      }
+
+      if (appSettings.highPrecisionOcr !== false) {
+        for (let i=0;i<imageParses.length;i++) {
+          const ip=imageParses[i];
+          const reviewCards=ip.parsed.cards.filter(d=>{ const r=resolveMachineEvidence(evidenceMap.get(d.machine)||[]); return !r || r.certainty==='review'; });
+          if(!reviewCards.length) continue;
+          setOcrProgress(`画像 ${i+1}/${imageParses.length}・白黒で照合`,Math.min(98,84+Math.round((i+1)/imageParses.length*8)));
+          try {
+            const ev3=await retryImageBinaryEvidence(worker,ip.file,reviewCards);
+            for(const e of ev3){ if(!evidenceMap.has(e.machine)) evidenceMap.set(e.machine,[]); evidenceMap.get(e.machine).push(e); }
+          } catch(e){ console.warn('binary precision retry failed',e); }
+        }
       }
 
       const retryTargets=[];
@@ -1817,7 +1956,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
 
-      // v0.21: それでも未解決の「画像上端6カード」だけ、3項目を個別OCRする。
+      // v0.22: それでも未解決の「画像上端6カード」だけ、3項目を個別OCRする。
       const fieldFallback=new Map();
       const fieldSeen=new Set();
       let fieldRetries=0;
@@ -1842,10 +1981,35 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
 
+      const precisionFieldRows=new Map();
+      if (appSettings.highPrecisionOcr !== false) {
+        const candidates=[];
+        for(const ip of imageParses){
+          for(const d of ip.parsed.cards){
+            const base=resolveMachineEvidence(evidenceMap.get(d.machine)||[]);
+            if(base && base.certainty==='review') candidates.push({ip,d,base});
+          }
+        }
+        candidates.sort((a,b)=>(a.base._score||0)-(b.base._score||0));
+        for(let i=0;i<Math.min(12,candidates.length);i++){
+          const {ip,d,base}=candidates[i];
+          setOcrProgress(`精密照合 ${d.machine}番台`,Math.min(99,93+Math.round((i+1)/Math.max(1,Math.min(12,candidates.length))*6)));
+          try {
+            const fr=await retryCardFields(worker,ip.file,d);
+            if(!fr) continue;
+            const ev=evidenceMap.get(d.machine)||[];
+            const ba=rowRateAgreement(base,ev), fa=rowRateAgreement(fr,ev);
+            if(fa>ba || (fa===ba && fr.games===base.games && fr.bb===base.bb && fr.rb===base.rb)) {
+              precisionFieldRows.set(Number(d.machine),{...fr,certainty:fa>=2?'ok':'review',_score:(base._score||0)+25,_exactRates:fa,_edgeQuality:base._edgeQuality||0});
+            }
+          } catch(e){ console.warn('precision field retry failed',d.machine,e); }
+        }
+      }
+
       const rows=[];
-      const allMachines=new Set([...evidenceMap.keys(),...fieldFallback.keys()]);
+      const allMachines=new Set([...evidenceMap.keys(),...fieldFallback.keys(),...precisionFieldRows.keys()]);
       for (const machine of allMachines) {
-        const row=resolveMachineEvidence(evidenceMap.get(machine)||[]) || fieldFallback.get(Number(machine));
+        const row=precisionFieldRows.get(Number(machine)) || resolveMachineEvidence(evidenceMap.get(machine)||[]) || fieldFallback.get(Number(machine));
         if (row) rows.push(row);
       }
       let cleanedRows=removeLikelyOverlapMisreads(rows);
@@ -2256,6 +2420,8 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     $('machineTypeSelect').addEventListener('change',e=>setMachineType(e.target.value));
     $('saveDayBtn').addEventListener('click',saveCurrentDay);
     $('clearDayBtn').addEventListener('click',clearDay);
+    $('precisionOcr').checked = appSettings.highPrecisionOcr !== false;
+    $('precisionOcr').addEventListener('change',e=>{ appSettings.highPrecisionOcr=!!e.target.checked; saveSettings(); toast(e.target.checked?'高精度モードON':'高精度モードOFF'); });
     $('imageInput').addEventListener('change',e=>{
       selectedFiles=Array.from(e.target.files||[]); $('runOcrBtn').disabled=!selectedFiles.length;
       renderSelectedPreviews();
