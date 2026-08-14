@@ -149,7 +149,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.18</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.19</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -957,7 +957,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       const left=grayL/Math.max(1,totalL);
       const right=grayR/Math.max(1,totalR);
       rowStats[y]={whole,left,right};
-      // v0.18: 530番のような「片側だけ灰色」の単独カード帯も拾う。
+      // v0.19: 530番のような「片側だけ灰色」の単独カード帯も拾う。
       hits[y]=whole>.60 || left>.60 || right>.60;
     }
     const bands=[];
@@ -1091,7 +1091,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const pitch=Math.round(median(diffs)||298);
 
     // 固定台番プロファイルだけ旧来の固定補完を使う。
-    // v0.18: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
+    // v0.19: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
     if (C.getProfile().fixedMachines) {
       for (const r of rows) {
         const l=r.left?.machine ?? null, rr=r.right?.machine ?? null;
@@ -1110,7 +1110,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
     } else {
-      // v0.18: 台番は「同じ物理カード位置」に直接ひも付ける。
+      // v0.19: 台番は「同じ物理カード位置」に直接ひも付ける。
       // 完全に台番を落とした行は、前後アンカーが連番として一致する場合だけ補完する。
       // 470→481のような台番ジャンプは絶対に471/472へ変換しない。
       const bandHasBack=(band)=>allWords.some(w=>
@@ -1193,6 +1193,31 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
       const known=[];
+      for (let i=0;i<slots.length;i++) {
+        const sl=slots[i], m=rows[sl.row][sl.side]?.machine;
+        if (Number.isInteger(m)) known.push({idx:i,machine:m});
+      }
+
+      // v0.19: ページ先頭側だけ台番OCRを落とした場合の逆向き救済。
+      // 例: 450(横長),451,452 が読めず 453 が最初のアンカーでも、
+      // その上に「実データカード」が3スロット実在していれば 450/451/452 と復元する。
+      // 画像にカード自体がない番号は作らない。先頭8スロット以内だけに限定して暴走を防ぐ。
+      if (known.length && known[0].idx>0 && known[0].idx<=8) {
+        const a=known[0];
+        const firstMachine=a.machine-a.idx;
+        if (C.isValidMachine(firstMachine)) {
+          for (let q=0;q<a.idx;q++) {
+            const sl=slots[q];
+            if (rows[sl.row][sl.side]?.machine) continue;
+            const machine=firstMachine+q;
+            if (!C.isValidMachine(machine)) continue;
+            rows[sl.row][sl.side]={machine,_score:0,_inferred:true,_leadingAnchor:true};
+          }
+        }
+      }
+
+      // 先頭補完後にknownを作り直す。
+      known.length=0;
       for (let i=0;i<slots.length;i++) {
         const sl=slots[i], m=rows[sl.row][sl.side]?.machine;
         if (Number.isInteger(m)) known.push({idx:i,machine:m});
@@ -1437,6 +1462,64 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     return {evidence:extractCardEvidence(words,d2), text:result.data.text||''};
   }
 
+  // v0.19: 画面上端カード向けの最終救済。
+  // カード全体OCRで数値が混ざる場合に、総G・BB・REGを別々の小領域としてOCRする。
+  async function retryCardFields(worker,file,d) {
+    const img=await loadImageForPixels(file);
+    const iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height;
+    const cw=d.xR-d.xL, bh=d.yB-d.yT;
+
+    async function readField(xa,xb,ya,yb,min,max) {
+      const sx=Math.max(0,Math.floor(d.xL+xa*cw));
+      const sy=Math.max(0,Math.floor(d.yT+ya*bh));
+      const sw=Math.max(10,Math.min(iw-sx,Math.ceil((xb-xa)*cw)));
+      const sh=Math.max(10,Math.min(ih-sy,Math.ceil((yb-ya)*bh)));
+      const scale=3.2;
+      const canvas=document.createElement('canvas');
+      canvas.width=Math.round(sw*scale); canvas.height=Math.round(sh*scale);
+      const ctx=canvas.getContext('2d',{willReadFrequently:true});
+      ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+      ctx.drawImage(img,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
+      try {
+        const im=ctx.getImageData(0,0,canvas.width,canvas.height), px=im.data;
+        for(let i=0;i<px.length;i+=4){
+          const g=Math.round(px[i]*.299+px[i+1]*.587+px[i+2]*.114);
+          const c=Math.max(0,Math.min(255,Math.round((g-128)*1.45+128)));
+          px[i]=px[i+1]=px[i+2]=c;
+        }
+        ctx.putImageData(im,0,0);
+      } catch(_) {}
+      await worker.setParameters({
+        tessedit_pageseg_mode:'7',
+        tessedit_char_whitelist:'0123456789,',
+        preserve_interword_spaces:'1',
+        user_defined_dpi:'300',
+      });
+      const result=await worker.recognize(canvas,{rotateAuto:false},{text:true,tsv:false,blocks:false});
+      const nums=String(result.data.text||'').match(/[0-9][0-9,]*/g)||[];
+      const vals=nums.map(x=>Number(x.replace(/,/g,''))).filter(n=>Number.isFinite(n)&&n>=min&&n<=max);
+      return vals.length ? Math.max(...vals) : null;
+    }
+
+    try {
+      const games=await readField(.58,1,.01,.48,50,20000);
+      const bb=await readField(.02,.31,.03,.60,0,100);
+      const rb=await readField(.31,.69,.01,.46,0,100);
+      const row={machine:d.machine,games,bb,rb};
+      if (games!==null && bb!==null && rb!==null && C.validateRow(row).valid) {
+        return {...row,certainty:'review',_fieldRetry:true};
+      }
+      return null;
+    } finally {
+      await worker.setParameters({
+        tessedit_pageseg_mode:'11',
+        tessedit_char_whitelist:'',
+        preserve_interword_spaces:'1',
+        user_defined_dpi:'300',
+      });
+    }
+  }
+
   // v0.11: 未解決カードが複数ある場合は、カードごとに何十回もOCRせず、
   // 元画像全体を約1.8倍へ拡大して「数字だけ」の第2パスを1画像1回だけ実行する。
   // その結果を既に判明しているカード座標へ当て直すことで、小さい総G/確率/1桁RBを補強する。
@@ -1626,9 +1709,35 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
 
+      // v0.19: それでも未解決の「画像上端6カード」だけ、3項目を個別OCRする。
+      const fieldFallback=new Map();
+      const fieldSeen=new Set();
+      let fieldRetries=0;
+      for (let i=0;i<imageParses.length && fieldRetries<6;i++) {
+        const ip=imageParses[i];
+        const sorted=[...ip.parsed.cards].sort((a,b)=>a.yT-b.yT || a.xL-b.xL);
+        for (const d of sorted) {
+          if (fieldRetries>=6) break;
+          const key=`${ip.file.name}:${d.machine}`;
+          if (fieldSeen.has(key)) continue;
+          fieldSeen.add(key);
+          const existing=resolveMachineEvidence(evidenceMap.get(d.machine)||[]);
+          if (existing) continue;
+          // 上端側だけ。通常カードまで3項目×個別OCRして重くしない。
+          if (d.yT > ip.parsed.cards.reduce((m,c)=>Math.max(m,c.yB||0),0)*.46) continue;
+          fieldRetries++;
+          setOcrProgress(`上端救済 ${d.machine}番台`,Math.min(99,92+fieldRetries));
+          try {
+            const fr=await retryCardFields(worker,ip.file,d);
+            if (fr) fieldFallback.set(Number(d.machine),fr);
+          } catch(e) { console.warn('field retry failed',d.machine,e); }
+        }
+      }
+
       const rows=[];
-      for (const [machine,evidence] of evidenceMap.entries()) {
-        const row=resolveMachineEvidence(evidence);
+      const allMachines=new Set([...evidenceMap.keys(),...fieldFallback.keys()]);
+      for (const machine of allMachines) {
+        const row=resolveMachineEvidence(evidenceMap.get(machine)||[]) || fieldFallback.get(Number(machine));
         if (row) rows.push(row);
       }
       rows.sort((a,b)=>a.machine-b.machine);
