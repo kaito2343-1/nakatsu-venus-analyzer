@@ -73,6 +73,7 @@ th,td { padding:9px 8px; border-bottom:1px solid var(--line); text-align:right; 
 th { position:sticky; top:0; background:#111927; color:var(--muted); font-size:11px; z-index:2; }
 th:first-child,td:first-child { text-align:left; font-weight:900; }
 .data-table input { width:78px; background:#0f1621; color:var(--text); border:1px solid #344257; border-radius:8px; padding:7px 6px; text-align:right; }
+.data-table .machine-input { width:66px; font-weight:900; text-align:center; color:var(--accent2); }
 .row-review { background:rgba(255,200,87,.06); }
 .status-ok { color:var(--good); font-weight:800; }
 .status-review { color:var(--warn); font-weight:800; }
@@ -153,7 +154,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.25</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.26</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -790,6 +791,26 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     renderAnalysis();
   }
 
+  function changeMachineNumber(oldMachine,newValue) {
+    const oldM=Number(oldMachine);
+    const newM=Number(String(newValue??'').replace(/[^0-9]/g,''));
+    if(!Number.isInteger(newM) || newM<1 || newM>999){ toast('台番は1〜999で入力してください'); renderEntryTable(); return false; }
+    if(newM===oldM) return true;
+    if(currentRows.has(newM) || allCurrentMachines().includes(newM)){
+      toast(`台番${newM}はすでに存在します`); renderEntryTable(); return false;
+    }
+    const r=rowFor(oldM);
+    currentRows.delete(oldM);
+    r.machine=newM;
+    r.certainty='ok';
+    currentRows.set(newM,r);
+    if(isDynamicMachineMode()) syncDynamicMachinesFromStore([...currentRows.keys()]);
+    markUnsaved();
+    renderEntryTable();
+    toast(`台番を${oldM} → ${newM}に変更しました`);
+    return true;
+  }
+
   function renderEntryTable() {
     const body = $('machineTableBody');
     body.innerHTML = '';
@@ -809,7 +830,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       const tr = document.createElement('tr');
       if (review) tr.className = 'row-review';
       tr.innerHTML = `
-        <td>${machine}</td>
+        <td><input class="machine-input" inputmode="numeric" pattern="[0-9]*" data-old-machine="${machine}" value="${machine}" aria-label="台番 ${machine}"></td>
         <td><input inputmode="numeric" data-machine="${machine}" data-field="games" value="${r.games || ''}" placeholder="0"></td>
         <td><input inputmode="numeric" data-machine="${machine}" data-field="bb" value="${r.bb || ''}" placeholder="0"></td>
         <td><input inputmode="numeric" data-machine="${machine}" data-field="rb" value="${r.rb || ''}" placeholder="0"></td>
@@ -817,7 +838,11 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         <td class="${!has?'status-empty':review?'status-review':'status-ok'}">${!has?'未入力':review?'要確認':'OK'}</td>`;
       body.appendChild(tr);
     }
-    body.querySelectorAll('input').forEach(input => input.addEventListener('input', (e) => {
+    body.querySelectorAll('.machine-input').forEach(input => {
+      input.addEventListener('change',e=>changeMachineNumber(e.target.dataset.oldMachine,e.target.value));
+      input.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); e.target.blur(); } });
+    });
+    body.querySelectorAll('input[data-field]').forEach(input => input.addEventListener('input', (e) => {
       const machine = Number(e.target.dataset.machine);
       const field = e.target.dataset.field;
       const r = rowFor(machine);
@@ -965,7 +990,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       const left=grayL/Math.max(1,totalL);
       const right=grayR/Math.max(1,totalR);
       rowStats[y]={whole,left,right};
-      // v0.25: 530番のような「片側だけ灰色」の単独カード帯も拾う。
+      // v0.26: 530番のような「片側だけ灰色」の単独カード帯も拾う。
       hits[y]=whole>.60 || left>.60 || right>.60;
     }
     const bands=[];
@@ -1000,7 +1025,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         s=last=null;
       }
     }
-    // v0.25: 灰色ヘッダーの下に「画面中央の縦罫線」が続くかを測る。
+    // v0.26: 灰色ヘッダーの下に「画面中央の縦罫線」が続くかを測る。
     // 450/501のような横長1台は中央罫線がほぼ無く、451/452のような左右2台行は中央罫線が濃い。
     for (let i=0;i<bands.length;i++) {
       const b=bands[i];
@@ -1163,7 +1188,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const pitch=Math.round(median(diffs)||298);
 
     // 固定台番プロファイルだけ旧来の固定補完を使う。
-    // v0.25: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
+    // v0.26: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
     if (C.getProfile().fixedMachines) {
       for (const r of rows) {
         const l=r.left?.machine ?? null, rr=r.right?.machine ?? null;
@@ -1182,7 +1207,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
     } else {
-      // v0.25: 台番は「同じ物理カード位置」に直接ひも付ける。
+      // v0.26: 台番は「同じ物理カード位置」に直接ひも付ける。
       // 完全に台番を落とした行は、前後アンカーが連番として一致する場合だけ補完する。
       // 470→481のような台番ジャンプは絶対に471/472へ変換しない。
       const bandHasBack=(band)=>allWords.some(w=>
@@ -1195,7 +1220,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         r._hasBody=bodyLooksLikeMachineRow(allWords,bands,i,width,height,pitch);
         if (!r._hasBody) continue;
         const hasBack=bandHasBack(band);
-        // v0.25: 「戻る」のOCR成否に依存せず、中央罫線の有無で横長1台を判定。
+        // v0.26: 「戻る」のOCR成否に依存せず、中央罫線の有無で横長1台を判定。
         // 0.26未満なら中央の左右分割線が弱い＝450/501型の1台カード。
         r._singleFull=!!(band.fullGray && (band.centerDividerRatio ?? 1) < .26);
         r._singleLeft=!!(!r._singleFull && band.leftGray && !band.rightGray);
@@ -1222,7 +1247,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
 
-      // v0.25: 左右2台行で両方のOCR台番が読めても連番でない場合は整合性を修正する。
+      // v0.26: 左右2台行で両方のOCR台番が読めても連番でない場合は整合性を修正する。
       // 例: 489を479と誤読し右側490が正しい場合、直前487/488から489/490へ戻す。
       for (let i=0;i<rows.length;i++) {
         const r=rows[i];
@@ -1321,7 +1346,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         if (Number.isInteger(m)) known.push({idx:i,machine:m});
       }
 
-      // v0.25: ページ先頭側だけ台番OCRを落とした場合の逆向き救済。
+      // v0.26: ページ先頭側だけ台番OCRを落とした場合の逆向き救済。
       // 例: 450(横長),451,452 が読めず 453 が最初のアンカーでも、
       // その上に「実データカード」が3スロット実在していれば 450/451/452 と復元する。
       // 画像にカード自体がない番号は作らない。先頭8スロット以内だけに限定して暴走を防ぐ。
@@ -1345,7 +1370,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         const sl=slots[i], m=rows[sl.row][sl.side]?.machine;
         if (Number.isInteger(m)) known.push({idx:i,machine:m});
       }
-      // v0.25: 連続する物理スロットの両端が、台番差とスロット差で完全一致する場合は、
+      // v0.26: 連続する物理スロットの両端が、台番差とスロット差で完全一致する場合は、
       // 中間スロットの誤読も含めて期待台番へ矯正する。
       // 例: 450, [410誤読], [空欄], 453 -> 450,451,452,453。
       // 470→481のように台番差とスロット差が一致しないジャンプは一切触らない。
@@ -1553,9 +1578,9 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     };
   }
 
-  // v0.25: スクロールを分割して撮った画像の重複部分で、469→479のように十の位だけ誤読するケースを除外。
+  // v0.26: スクロールを分割して撮った画像の重複部分で、469→479のように十の位だけ誤読するケースを除外。
   // 総G・BB・REGが完全一致し、台番差が10で、片方が画像上端の低品質カードだった場合だけ発動する。
-  // v0.25: 同じ百番台の中に410のような孤立誤読が残る場合を除外する。
+  // v0.26: 同じ百番台の中に410のような孤立誤読が残る場合を除外する。
   // 隣接台番差25以内を同一クラスタとみなし、1台だけの孤立クラスタは捨てる。
   // 450〜470→481〜490（差11）や501〜511→522〜530（差11）は同一クラスタとして維持する。
   function filterSparseMachineClusters(rows) {
@@ -1763,7 +1788,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     return {evidence:extractCardEvidence(words,d2), text:result.data.text||''};
   }
 
-  // v0.25: 画面上端カード向けの最終救済。
+  // v0.26: 画面上端カード向けの最終救済。
   // カード全体OCRで数値が混ざる場合に、総G・BB・REGを別々の小領域としてOCRする。
   async function retryCardFields(worker,file,d) {
     const img=await loadImageForPixels(file);
@@ -1974,8 +1999,8 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
             }
           } catch(e) { console.warn('precision header retry failed',e); }
         }
-        // v0.25: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
-        // v0.25: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
+        // v0.26: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
+        // v0.26: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
         // 後段の重複排除に使うため、各カードの「画像端からの距離」を証拠へ保存する。
         for (let ei=0;ei<parsed.evidence.length;ei++) {
           const d=parsed.cards[ei];
@@ -2084,7 +2109,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
 
-      // v0.25: それでも未解決の「画像上端6カード」だけ、3項目を個別OCRする。
+      // v0.26: それでも未解決の「画像上端6カード」だけ、3項目を個別OCRする。
       const fieldFallback=new Map();
       const fieldSeen=new Set();
       let fieldRetries=0;
@@ -2141,7 +2166,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         if (row) rows.push(row);
       }
       let cleanedRows=removeLikelyOverlapMisreads(rows).filter(r=>Number(r.games)>0 && C.validateRow(r).valid);
-      // v0.25: OCR候補を増やした副作用で本文の数字が台番化することがある。
+      // v0.26: OCR候補を増やした副作用で本文の数字が台番化することがある。
       // その画像群で支配的な百番台だけを残し、144/260等の異常台番を除外する。
       const bandFiltered=filterDominantMachineBand(cleanedRows);
       cleanedRows=bandFiltered.rows;
