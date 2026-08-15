@@ -177,6 +177,39 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 @media (max-width:650px){ .machine-review-grid{grid-template-columns:1fr;} .backup-tools{grid-template-columns:1fr;} .machine-history-head{grid-template-columns:1fr;} .machine-history-controls{grid-template-columns:1fr;align-items:start;} .machine-summary-grid{grid-template-columns:1fr 1fr;} .machine-summary-card{padding:11px;} .machine-summary-rates{gap:6px 8px;} }
 @media (max-width:360px){ .machine-summary-grid{grid-template-columns:1fr;} }
 
+/* v0.30 history intelligence */
+.history-period-tabs { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+.period-chip,.metric-chip { border:1px solid var(--line); background:#0f1621; color:var(--muted); border-radius:10px; padding:8px 7px; font-size:11px; font-weight:900; white-space:nowrap; }
+.period-chip.active,.metric-chip.active { color:#17120a; background:var(--accent); border-color:var(--accent); }
+.today-compare { border:1px solid var(--line); border-radius:14px; padding:11px 12px; background:rgba(255,255,255,.025); }
+.today-compare:empty { display:none; }
+.today-compare-head { display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:9px; }
+.today-compare-head strong { font-size:13px; }
+.today-compare-head small { color:var(--muted); font-size:10px; }
+.today-compare-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+.today-compare-item { min-width:0; padding:8px; border:1px solid var(--line); border-radius:10px; background:#0f1621; }
+.today-compare-item span { display:block; color:var(--muted); font-size:10px; }
+.today-compare-item b { display:block; margin-top:2px; font-size:14px; white-space:nowrap; }
+.today-compare-item small { display:block; margin-top:3px; font-size:9px; line-height:1.25; }
+.delta-good { color:var(--good); }
+.delta-bad { color:var(--danger); }
+.delta-flat { color:var(--muted); }
+.heatmap-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:12px; }
+.heatmap-metrics { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+.heatmap-period-note { margin:-4px 0 10px; color:var(--muted); font-size:10px; }
+.island-heatmap { display:grid; gap:13px; }
+.island-group { min-width:0; }
+.island-label { display:flex; justify-content:space-between; gap:8px; margin-bottom:6px; color:var(--muted); font-size:10px; }
+.island-track { display:grid; grid-auto-flow:column; grid-auto-columns:76px; gap:6px; overflow-x:auto; padding:1px 1px 7px; -webkit-overflow-scrolling:touch; scrollbar-width:thin; }
+.heat-tile { min-height:82px; border:1px solid #344257; border-radius:12px; padding:8px 7px; color:var(--text); text-align:left; display:flex; flex-direction:column; justify-content:space-between; box-shadow:inset 0 0 0 1px rgba(255,255,255,.015); }
+.heat-tile strong { font-size:15px; line-height:1; }
+.heat-tile .heat-main { font-size:11px; font-weight:900; white-space:nowrap; }
+.heat-tile small { font-size:9px; color:#d0d7e2; line-height:1.3; white-space:nowrap; }
+.heat-tile.no-data { opacity:.4; background:#0f1621 !important; }
+.heat-legend { display:flex; justify-content:space-between; align-items:center; margin-top:8px; color:var(--muted); font-size:9px; }
+.heat-legend-bar { flex:0 0 110px; height:7px; border-radius:99px; background:linear-gradient(90deg,rgba(84,211,159,.06),rgba(84,211,159,.64)); }
+@media (max-width:520px){ .heatmap-head{display:block;} .heatmap-metrics{justify-content:flex-start;margin-top:9px;} .today-compare-grid{gap:5px;} .today-compare-item{padding:7px 6px;} .today-compare-item b{font-size:13px;} }
+
 @media (min-width:700px) {
   .summary-grid { grid-template-columns:repeat(4,1fr); }
   .area-grid { grid-template-columns:repeat(3,1fr); }
@@ -189,7 +222,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.29</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.30</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -334,10 +367,34 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
           </div>
           <div class="machine-history-controls">
             <select id="historyMachineSelect"></select>
+            <div id="historyPeriodTabs" class="history-period-tabs" aria-label="集計期間">
+              <button type="button" class="period-chip" data-history-days="3">3日</button>
+              <button type="button" class="period-chip active" data-history-days="7">7日</button>
+              <button type="button" class="period-chip" data-history-days="14">14日</button>
+              <button type="button" class="period-chip" data-history-days="all">全期間</button>
+            </div>
             <div id="machineHistorySummary" class="machine-summary-grid" aria-live="polite"></div>
+            <div id="todayCompare" class="today-compare" aria-live="polite"></div>
           </div>
         </div>
         <div id="machineHistory" class="machine-history empty">台番を選ぶと表示されます。</div>
+      </section>
+
+      <section class="panel">
+        <div class="heatmap-head">
+          <div>
+            <h2>島ヒートマップ</h2>
+            <p>選択期間の履歴を台配置ごとに比較。濃いほど強い傾向です。</p>
+          </div>
+          <div id="heatmapMetrics" class="heatmap-metrics" aria-label="ヒートマップ指標">
+            <button type="button" class="metric-chip active" data-heat-metric="p4">4+期待</button>
+            <button type="button" class="metric-chip" data-heat-metric="reg">REG</button>
+            <button type="button" class="metric-chip" data-heat-metric="combined">合算</button>
+          </div>
+        </div>
+        <div id="heatmapPeriodNote" class="heatmap-period-note"></div>
+        <div id="islandHeatmap" class="island-heatmap"></div>
+        <div class="heat-legend"><span>弱め</span><div class="heat-legend-bar"></div><span>強め</span></div>
       </section>
 
       <section class="panel">
@@ -758,6 +815,8 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
   let activeReviewMachine = null;
   let activeReviewRegionIndex = 0;
   let pendingSaveIssues = [];
+  let historyWindowDays = 7;
+  let heatmapMetric = 'p4';
 
   function todayLocal() {
     const d = new Date();
@@ -2484,15 +2543,60 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     };
   }
 
+  function historyPeriodLabel() {
+    return historyWindowDays === 'all' ? '全期間' : `直近${historyWindowDays}日`;
+  }
+
+  function filterRecordsByHistoryWindow(records) {
+    if (!records.length || historyWindowDays === 'all') return records.slice();
+    const latestDate = new Date(`${records[records.length-1].date}T00:00:00`);
+    const start = new Date(latestDate);
+    start.setDate(start.getDate() - (Number(historyWindowDays) - 1));
+    return records.filter(x => new Date(`${x.date}T00:00:00`) >= start);
+  }
+
+  function storeMachines(store) {
+    const dates = Object.keys(store.days || {}).sort();
+    const freq = new Map();
+    for (const date of dates) for (const r of (store.days[date] || [])) {
+      const m=Number(r.machine); if (!Number.isInteger(m)) continue;
+      freq.set(m,(freq.get(m)||0)+1);
+    }
+    const latest = new Set((store.days[dates[dates.length-1]] || []).map(r=>Number(r.machine)).filter(Number.isInteger));
+    const threshold = Math.max(2, Math.ceil(dates.length * .45));
+    const result = [...freq.entries()].filter(([m,n])=>latest.has(m) || n>=threshold).map(([m])=>m).sort((a,b)=>a-b);
+    return result.length ? result : [...freq.keys()].sort((a,b)=>a-b);
+  }
+
+  function machineRecordsFromStore(store, machine) {
+    const priors=getPriors();
+    const out=[];
+    for (const date of Object.keys(store.days || {}).sort()) {
+      const row=(store.days[date]||[]).find(r=>Number(r.machine)===Number(machine));
+      if (!row || !C.safeNum(row.games)) continue;
+      const a=C.posterior(row,priors);
+      if (a) out.push({date,row,a});
+    }
+    return out;
+  }
+
+  function averageDailyP4(records) {
+    const valid=records.filter(x=>x.a && Number.isFinite(x.a.p4));
+    if (!valid.length) return null;
+    const totalWeight=valid.reduce((s,x)=>s+Math.sqrt(Math.max(1,C.safeNum(x.row.games))),0);
+    return valid.reduce((s,x)=>s+x.a.p4*Math.sqrt(Math.max(1,C.safeNum(x.row.games))),0)/totalWeight;
+  }
+
   function renderMachineHistorySummary(machine, records) {
     const box = $('machineHistorySummary');
     if (!box) return;
     if (!records.length) { box.innerHTML = ''; return; }
-    const latestDate = new Date(`${records[records.length-1].date}T00:00:00`);
-    const weekStart = new Date(latestDate); weekStart.setDate(weekStart.getDate()-6);
-    const week = records.filter(x => new Date(`${x.date}T00:00:00`) >= weekStart);
-    const groups = [
-      {label:'直近7日', rows:week},
+    const selected = filterRecordsByHistoryWindow(records);
+    const groups = historyWindowDays === 'all' ? [
+      {label:'全期間', rows:records},
+      {label:'直近7日', rows:(()=>{ const latest=new Date(`${records[records.length-1].date}T00:00:00`); const start=new Date(latest); start.setDate(start.getDate()-6); return records.filter(x=>new Date(`${x.date}T00:00:00`)>=start); })()},
+    ] : [
+      {label:historyPeriodLabel(), rows:selected},
       {label:'全期間', rows:records},
     ];
     box.innerHTML = groups.map(g=>{
@@ -2509,22 +2613,109 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     }).join('');
   }
 
-  function renderMachineHistory() {
-    const machine = Number($('historyMachineSelect').value || allCurrentMachines()[0] || 0);
-    const store = loadStore(); const priors = getPriors();
-    const dates = Object.keys(store.days).sort();
-    const records = [];
-    for (const date of dates) {
-      const row = (store.days[date] || []).find(r => Number(r.machine) === machine);
-      if (!row || !row.games) continue;
-      const a = C.posterior(row, priors); if (a) records.push({date,row,a});
+  function rateDelta(current, baseline) {
+    if (!current || !baseline || !Number.isFinite(current) || !Number.isFinite(baseline)) return null;
+    return (baseline / current - 1) * 100;
+  }
+
+  function renderTodayCompare(machine, records) {
+    const box=$('todayCompare');
+    if (!box) return;
+    if (records.length < 2) { box.innerHTML=''; return; }
+    const latest=records[records.length-1];
+    const latestDate=new Date(`${latest.date}T00:00:00`);
+    const priorStart=new Date(latestDate); priorStart.setDate(priorStart.getDate()-7);
+    const prior=records.filter(x=>x.date!==latest.date && new Date(`${x.date}T00:00:00`)>=priorStart);
+    if (!prior.length) { box.innerHTML=''; return; }
+    const cur=aggregateMachineRows([latest]);
+    const base=aggregateMachineRows(prior);
+    const items=[['BB',cur.bbRate,base.bbRate],['REG',cur.rbRate,base.rbRate],['合算',cur.combined,base.combined]];
+    box.innerHTML=`<div class="today-compare-head"><strong>${latest.date.slice(5)} 当日比較</strong><small>vs 直前${prior.length}日合算</small></div>
+      <div class="today-compare-grid">${items.map(([label,c,b])=>{
+        const d=rateDelta(c,b);
+        const cls=d==null?'delta-flat':d>3?'delta-good':d<-3?'delta-bad':'delta-flat';
+        const delta=d==null?'比較不可':`${d>=0?'+':''}${d.toFixed(0)}%`;
+        return `<div class="today-compare-item"><span>${label}</span><b>${formatRate(c)}</b><small class="${cls}">${delta}<br>過去 ${formatRate(b)}</small></div>`;
+      }).join('')}</div>`;
+  }
+
+  function splitMachineIslands(machines) {
+    if (!machines.length) return [];
+    const set=new Set(machines.map(Number));
+    const preferred = appSettings.machineType === 'myjuggler5'
+      ? [Array.from({length:11},(_,i)=>450+i), Array.from({length:10},(_,i)=>461+i), Array.from({length:10},(_,i)=>481+i)]
+      : [Array.from({length:10},(_,i)=>501+i), Array.from({length:10},(_,i)=>521+i)];
+    const groups=[]; const used=new Set();
+    for (const layout of preferred) {
+      const g=layout.filter(m=>set.has(m));
+      if (g.length) { groups.push(g); g.forEach(m=>used.add(m)); }
     }
+    const extras=machines.filter(m=>!used.has(m)).sort((a,b)=>a-b);
+    if (extras.length) {
+      let cur=[extras[0]];
+      for(let i=1;i<extras.length;i++) {
+        if (extras[i]-extras[i-1] > 2) { groups.push(cur); cur=[]; }
+        cur.push(extras[i]);
+      }
+      groups.push(cur);
+    }
+    return groups;
+  }
+
+  function heatStrength(metric, agg, p4) {
+    if (metric==='p4') return p4==null ? 0 : Math.max(0,Math.min(1,p4));
+    const specs=C.SPECS;
+    if (metric==='reg') {
+      if (!agg.rbRate) return 0;
+      const weak=specs[0].rb, strong=specs[5].rb;
+      return Math.max(0,Math.min(1,(weak-agg.rbRate)/(weak-strong)));
+    }
+    if (!agg.combined) return 0;
+    const weak=specs[0].combined, strong=specs[5].combined;
+    return Math.max(0,Math.min(1,(weak-agg.combined)/(weak-strong)));
+  }
+
+  function renderIslandHeatmap() {
+    const box=$('islandHeatmap');
+    if (!box) return;
+    const store=loadStore();
+    const machines=storeMachines(store);
+    $('heatmapPeriodNote').textContent=`集計期間：${historyPeriodLabel()}　※4+期待は日別推定の回転数調整平均`;
+    if (!machines.length) { box.innerHTML='<div class="empty">履歴がありません。</div>'; return; }
+    const groups=splitMachineIslands(machines);
+    box.innerHTML=groups.map((group,gi)=>{
+      const descending=group.slice().sort((a,b)=>b-a);
+      const tiles=descending.map(machine=>{
+        const recs=filterRecordsByHistoryWindow(machineRecordsFromStore(store,machine));
+        const agg=aggregateMachineRows(recs);
+        const p4=averageDailyP4(recs);
+        const strength=heatStrength(heatmapMetric,agg,p4);
+        const alpha=(.045 + strength*.56).toFixed(3);
+        const main=heatmapMetric==='p4' ? (p4==null?'—':`4+ ${Math.round(p4*100)}%`) : heatmapMetric==='reg' ? `REG ${formatRate(agg.rbRate)}` : `合算 ${formatRate(agg.combined)}`;
+        return `<button type="button" class="heat-tile ${recs.length?'':'no-data'}" data-heat-machine="${machine}" style="background:rgba(84,211,159,${alpha})"><strong>${machine}</strong><span class="heat-main">${main}</span><small>REG ${formatRate(agg.rbRate)}<br>${recs.length}日・${agg.games.toLocaleString()}G</small></button>`;
+      }).join('');
+      return `<div class="island-group"><div class="island-label"><strong>島${gi+1}</strong><span>${Math.min(...group)}〜${Math.max(...group)}番</span></div><div class="island-track">${tiles}</div></div>`;
+    }).join('');
+    box.querySelectorAll('[data-heat-machine]').forEach(btn=>btn.addEventListener('click',()=>{
+      const m=Number(btn.dataset.heatMachine);
+      const sel=$('historyMachineSelect');
+      if ([...sel.options].some(o=>Number(o.value)===m)) { sel.value=String(m); renderMachineHistory(); sel.scrollIntoView({behavior:'smooth',block:'center'}); }
+    }));
+  }
+
+  function renderMachineHistory() {
+    const store = loadStore();
+    const machines=storeMachines(store);
+    const machine = Number($('historyMachineSelect').value || machines[0] || 0);
+    const records=machineRecordsFromStore(store,machine);
     renderMachineHistorySummary(machine, records);
+    renderTodayCompare(machine, records);
     const box = $('machineHistory');
     box.className = records.length ? 'machine-history' : 'machine-history empty';
-    if (!records.length) { box.textContent = 'この台の履歴はまだありません。'; return; }
+    if (!records.length) { box.textContent = 'この台の履歴はまだありません。'; renderIslandHeatmap(); return; }
     box.innerHTML = records.slice().reverse().map(x => `
       <div class="machine-history-row"><strong>${x.date.slice(5)}</strong><div><div class="prob-bar"><span style="width:${Math.round(x.a.p4*100)}%"></span></div><small>${x.row.games}G BB${x.row.bb} REG${x.row.rb}</small></div><div>4+ ${pct(x.a.p4,0)}<br><small>期待${num(x.a.expected,2)}</small></div></div>`).join('');
+    renderIslandHeatmap();
   }
 
   function renderTomorrowCandidates() {
@@ -2841,7 +3032,12 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
   }
 
   function initMachineSelect() {
-    $('historyMachineSelect').innerHTML = allCurrentMachines().map(m=>`<option value="${m}">${m}番</option>`).join('');
+    const store=loadStore();
+    const machines=storeMachines(store);
+    const sel=$('historyMachineSelect');
+    const prev=Number(sel.value);
+    sel.innerHTML = machines.map(m=>`<option value="${m}">${m}番</option>`).join('');
+    if (machines.includes(prev)) sel.value=String(prev);
   }
 
   function bindEvents() {
@@ -2870,6 +3066,16 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       applyParsedRows(C.parseImportText($('importText').value)); $('importDialog').close();
     });
     $('historyMachineSelect').addEventListener('change',renderMachineHistory);
+    $('historyPeriodTabs').querySelectorAll('[data-history-days]').forEach(btn=>btn.addEventListener('click',()=>{
+      historyWindowDays = btn.dataset.historyDays === 'all' ? 'all' : Number(btn.dataset.historyDays);
+      $('historyPeriodTabs').querySelectorAll('[data-history-days]').forEach(b=>b.classList.toggle('active', b===btn));
+      renderMachineHistory();
+    }));
+    $('heatmapMetrics').querySelectorAll('[data-heat-metric]').forEach(btn=>btn.addEventListener('click',()=>{
+      heatmapMetric=btn.dataset.heatMetric || 'p4';
+      $('heatmapMetrics').querySelectorAll('[data-heat-metric]').forEach(b=>b.classList.toggle('active', b===btn));
+      renderIslandHeatmap();
+    }));
     $('exportJsonBtn').addEventListener('click',exportJson);
     $('shareChatgptBtn').addEventListener('click',exportChatgptShare);
     $('ghTestBtn').addEventListener('click',()=>testGithubConnection().catch(e=>toast('接続失敗: '+e.message)));
