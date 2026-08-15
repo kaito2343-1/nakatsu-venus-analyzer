@@ -1,6 +1,6 @@
 {
   "format": "nakatsu-venus-public-history-v1",
-  "updatedAt": "2026-08-15T14:44:01.859Z",
+  "updatedAt": "2026-08-15T14:54:20.981Z",
   "app": "nakatsu-venus-analyzer",
   "sourcePage": "https://kaito2343-1.github.io/nakatsu-venus-analyzer/",
   "myjuggler5": {
@@ -3698,7 +3698,7 @@
           "certainty": "ok"
         },
         {
-          "machine": 520,
+          "machine": 510,
           "games": 4693,
           "bb": 22,
           "rb": 22,
