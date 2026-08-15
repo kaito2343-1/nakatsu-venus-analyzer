@@ -141,6 +141,26 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 .preview-dialog-card { width:min(94vw,760px); max-height:90vh; display:flex; flex-direction:column; }
 .preview-full { display:block; max-width:100%; max-height:78vh; object-fit:contain; margin:0 auto; border-radius:12px; background:#05080d; }
 .dynamic-empty { text-align:center !important; color:var(--muted); padding:24px 12px !important; white-space:normal !important; }
+.save-check { margin-top:10px; padding:10px 12px; border-radius:12px; border:1px solid var(--line); font-size:12px; line-height:1.5; background:rgba(255,255,255,.025); color:var(--muted); }
+.save-check.good { border-color:rgba(84,211,159,.45); color:var(--good); }
+.save-check.warn { border-color:rgba(255,200,87,.45); color:var(--warn); }
+.review-image-btn { padding:6px 9px; border-radius:9px; border:1px solid var(--line); background:var(--panel2); color:var(--text); font-size:11px; font-weight:800; }
+.review-image-btn:disabled { opacity:.3; }
+.issue-list { display:grid; gap:8px; margin:10px 0 14px; padding:0; list-style:none; }
+.issue-list li { border:1px solid var(--line); background:#0f1621; border-radius:10px; padding:9px 10px; font-size:12px; line-height:1.45; }
+.issue-list li.error { border-color:rgba(255,107,118,.55); }
+.issue-list li.warning { border-color:rgba(255,200,87,.45); }
+.machine-review-grid { display:grid; grid-template-columns:1.25fr .75fr; gap:12px; align-items:start; }
+.machine-crop-wrap { background:#05080d; border:1px solid var(--line); border-radius:12px; padding:6px; min-height:180px; display:grid; place-items:center; overflow:auto; }
+.machine-crop-canvas { display:block; max-width:100%; height:auto; background:white; }
+.review-fields { display:grid; gap:8px; }
+.review-fields label { display:grid; gap:4px; font-size:11px; color:var(--muted); }
+.review-fields input { width:100%; background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:9px; padding:9px; }
+.crop-nav { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:8px; }
+.crop-nav button { flex:1; }
+.backup-tools { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:end; }
+.backup-tools select { min-width:0; }
+@media (max-width:650px){ .machine-review-grid{grid-template-columns:1fr;} .backup-tools{grid-template-columns:1fr;} }
 
 @media (min-width:700px) {
   .summary-grid { grid-template-columns:repeat(4,1fr); }
@@ -154,7 +174,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.26</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.27</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -224,12 +244,13 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
           <table class="data-table">
             <thead>
               <tr>
-                <th>台</th><th>総G</th><th>BB</th><th>REG</th><th>合算</th><th>状態</th>
+                <th>台</th><th>総G</th><th>BB</th><th>REG</th><th>合算</th><th>状態</th><th>画像</th>
               </tr>
             </thead>
             <tbody id="machineTableBody"></tbody>
           </table>
         </div>
+        <div id="saveCheckStatus" class="save-check">保存前チェック待ち</div>
         <div class="sticky-actions">
           <button id="saveDayBtn" class="primary wide">保存して分析</button>
         </div>
@@ -341,6 +362,11 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
             <button id="ghRestoreBtn" class="secondary">クラウドから復元</button>
             <button id="ghCopyUrlBtn" class="secondary">公開履歴URLをコピー</button>
           </div>
+          <div class="backup-tools">
+            <label class="field"><span>直前5世代バックアップ</span><select id="ghBackupSelect"><option value="">一覧を更新してください</option></select></label>
+            <button id="ghBackupRefreshBtn" class="secondary">一覧更新</button>
+          </div>
+          <button id="ghBackupRestoreBtn" class="secondary wide">選択した世代を端末へ復元</button>
           <div id="ghStatus" class="cloud-status"><strong>未設定</strong>GitHub Tokenを入力して接続テストしてください。</div>
           <div class="cloud-warning">トークンはこのリポジトリだけに限定し、Repository permissions は Contents: Read and write のみにしてください。「端末に保存」をOFFにした場合、トークンは現在のブラウザセッションだけ保持します。ホーム画面版で履歴が空の場合は、公開履歴から自動復元します。</div>
         </div>
@@ -405,6 +431,30 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       <div class="section-head inline"><div><h2 id="imagePreviewTitle">元スクショ</h2></div><button class="icon-button" value="cancel" aria-label="閉じる">×</button></div>
       <img id="previewFullImage" class="preview-full" alt="選択した元スクショ" />
     </form>
+  </dialog>
+
+  <dialog id="saveCheckDialog">
+    <div class="dialog-card large">
+      <div class="section-head inline"><div><h2>保存前チェック</h2><p>怪しい点があります。確認してから保存してください。</p></div><button id="saveCheckCloseBtn" class="icon-button" type="button">×</button></div>
+      <ul id="saveIssueList" class="issue-list"></ul>
+      <div class="button-row"><button id="saveCheckBackBtn" type="button" class="secondary">修正して戻る</button><button id="saveCheckForceBtn" type="button" class="primary">確認済みで保存</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="machineReviewDialog">
+    <div class="dialog-card large">
+      <div class="section-head inline"><div><h2 id="machineReviewTitle">台データ確認</h2><p>元スクショのカードと数値を横に並べて確認できます。</p></div><button id="machineReviewCloseBtn" class="icon-button" type="button">×</button></div>
+      <div class="machine-review-grid">
+        <div><div class="machine-crop-wrap"><canvas id="machineCropCanvas" class="machine-crop-canvas"></canvas></div><div class="crop-nav"><button id="cropPrevBtn" type="button" class="secondary">前の画像</button><span id="cropCount" class="hint">1/1</span><button id="cropNextBtn" type="button" class="secondary">次の画像</button></div></div>
+        <div class="review-fields">
+          <label>台番<input id="reviewMachineInput" inputmode="numeric"></label>
+          <label>総G<input id="reviewGamesInput" inputmode="numeric"></label>
+          <label>BB<input id="reviewBbInput" inputmode="numeric"></label>
+          <label>REG<input id="reviewRbInput" inputmode="numeric"></label>
+          <button id="applyMachineReviewBtn" type="button" class="primary wide">修正を反映</button>
+        </div>
+      </div>
+    </div>
   </dialog>
 
   <div id="toast" class="toast hidden" role="status"></div>
@@ -684,6 +734,10 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
   let cloudSettings = loadCloudSettings();
   C.setProfile(appSettings.machineType || 'myjuggler5');
   let previewUrls = [];
+  let ocrCardRegions = new Map();
+  let activeReviewMachine = null;
+  let activeReviewRegionIndex = 0;
+  let pendingSaveIssues = [];
 
   function todayLocal() {
     const d = new Date();
@@ -804,6 +858,10 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     r.machine=newM;
     r.certainty='ok';
     currentRows.set(newM,r);
+    if (ocrCardRegions.has(oldM)) {
+      const regs=ocrCardRegions.get(oldM); ocrCardRegions.delete(oldM);
+      ocrCardRegions.set(newM,(ocrCardRegions.get(newM)||[]).concat(regs));
+    }
     if(isDynamicMachineMode()) syncDynamicMachinesFromStore([...currentRows.keys()]);
     markUnsaved();
     renderEntryTable();
@@ -817,7 +875,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     let entered = 0;
     const machines=allCurrentMachines();
     if (!machines.length) {
-      body.innerHTML='<tr><td colspan="6" class="dynamic-empty">スクショを選んで「OCRして反映」を押すと、台番を自動で追加します。</td></tr>';
+      body.innerHTML='<tr><td colspan="7" class="dynamic-empty">スクショを選んで「OCRして反映」を押すと、台番を自動で追加します。</td></tr>';
       $('rowCountText').textContent='0台・スクショ待ち';
       return;
     }
@@ -835,9 +893,11 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         <td><input inputmode="numeric" data-machine="${machine}" data-field="bb" value="${r.bb || ''}" placeholder="0"></td>
         <td><input inputmode="numeric" data-machine="${machine}" data-field="rb" value="${r.rb || ''}" placeholder="0"></td>
         <td>${formatRate(C.combinedRate(r.games,r.bb,r.rb))}</td>
-        <td class="${!has?'status-empty':review?'status-review':'status-ok'}">${!has?'未入力':review?'要確認':'OK'}</td>`;
+        <td class="${!has?'status-empty':review?'status-review':'status-ok'}">${!has?'未入力':review?'要確認':'OK'}</td>
+        <td><button type="button" class="review-image-btn" data-review-machine="${machine}" ${ocrCardRegions.has(Number(machine))?'':'disabled'}>${ocrCardRegions.has(Number(machine))?'確認':'—'}</button></td>`;
       body.appendChild(tr);
     }
+    body.querySelectorAll('[data-review-machine]').forEach(btn=>btn.addEventListener('click',()=>showMachineReview(Number(btn.dataset.reviewMachine))));
     body.querySelectorAll('.machine-input').forEach(input => {
       input.addEventListener('change',e=>changeMachineNumber(e.target.dataset.oldMachine,e.target.value));
       input.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); e.target.blur(); } });
@@ -853,20 +913,72 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       renderEntryTable();
     }));
     $('rowCountText').textContent = `${entered} / ${machines.length}台 入力済み`;
+    updateSaveCheckStatus();
   }
 
-  function saveCurrentDay() {
+  function historicalExpectedMachines(date) {
+    const days=loadStore().days||{};
+    const eligible=Object.entries(days).filter(([d,rows])=>d!==date && Array.isArray(rows) && rows.length>=5);
+    if(eligible.length<2) return [];
+    const counts=new Map();
+    for(const [,rows] of eligible) for(const r of rows) counts.set(Number(r.machine),(counts.get(Number(r.machine))||0)+1);
+    const threshold=Math.max(2,Math.ceil(eligible.length*.55));
+    return [...counts.entries()].filter(([,c])=>c>=threshold).map(([m])=>m).sort((a,b)=>a-b);
+  }
+  function buildPreSaveIssues() {
+    const date=$('dateInput').value;
+    const machines=allCurrentMachines();
+    const rows=machines.map(rowFor);
+    const issues=[];
+    const entered=rows.filter(r=>r.games>0||r.bb>0||r.rb>0);
+    const emptyMachines=rows.filter(r=>!(r.games>0||r.bb>0||r.rb>0)).map(r=>r.machine);
+    if(emptyMachines.length) issues.push({type:'error',text:`数値未入力の台があります: ${emptyMachines.join(', ')}`});
+    const invalid=entered.filter(r=>!C.validateRow(r).valid).map(r=>r.machine);
+    if(invalid.length) issues.push({type:'error',text:`数値の整合性エラー: ${invalid.join(', ')}番`});
+    const review=entered.filter(r=>r.certainty==='review').map(r=>r.machine);
+    if(review.length) issues.push({type:'warning',text:`OCR要確認: ${review.join(', ')}番`});
+    const huge=entered.filter(r=>r.games>15000).map(r=>r.machine);
+    if(huge.length) issues.push({type:'warning',text:`総Gが15,000Gを超えています: ${huge.join(', ')}番`});
+    const expected=historicalExpectedMachines(date);
+    if(expected.length>=5){
+      const cur=new Set(entered.map(r=>Number(r.machine)));
+      const missing=expected.filter(m=>!cur.has(m));
+      const extra=[...cur].filter(m=>!expected.includes(m)).sort((a,b)=>a-b);
+      if(missing.length) issues.push({type:'warning',text:`過去の通常台番構成と比べて欠落: ${missing.join(', ')}番`});
+      if(extra.length) issues.push({type:'warning',text:`過去の通常台番構成にない台番: ${extra.join(', ')}番`});
+    }
+    return issues;
+  }
+  function updateSaveCheckStatus() {
+    const el=$('saveCheckStatus'); if(!el) return;
+    const issues=buildPreSaveIssues();
+    if(!issues.length){ el.className='save-check good'; el.textContent='保存前チェック: OK'; return; }
+    const errors=issues.filter(x=>x.type==='error').length;
+    el.className='save-check warn'; el.textContent=`保存前チェック: ${issues.length}件要確認${errors?`（エラー${errors}件）`:''}`;
+  }
+  function showSaveCheckDialog(issues) {
+    pendingSaveIssues=issues;
+    $('saveIssueList').innerHTML=issues.map(x=>`<li class="${x.type}">${x.type==='error'?'⚠️':'確認'} ${x.text}</li>`).join('');
+    $('saveCheckDialog').showModal();
+  }
+  function persistCurrentDay() {
     const date = $('dateInput').value;
-    if (!date) return toast('日付を選んでください');
     const rows = allCurrentMachines().map(rowFor).filter(r => r.games > 0 || r.bb > 0 || r.rb > 0);
     const store = loadStore();
     store.days[date] = rows;
     saveStore(store);
     markSaved();
-    renderAnalysis(); renderHistory();
+    renderAnalysis(); renderHistory(); updateSaveCheckStatus();
     toast(`${date} を保存しました`);
     switchView('analysis');
     maybeAutoCloudSync();
+  }
+  function saveCurrentDay(force=false) {
+    const date = $('dateInput').value;
+    if (!date) return toast('日付を選んでください');
+    const issues=buildPreSaveIssues();
+    if(issues.length && !force){ showSaveCheckDialog(issues); return; }
+    persistCurrentDay();
   }
 
   function clearDay() {
@@ -990,7 +1102,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       const left=grayL/Math.max(1,totalL);
       const right=grayR/Math.max(1,totalR);
       rowStats[y]={whole,left,right};
-      // v0.26: 530番のような「片側だけ灰色」の単独カード帯も拾う。
+      // v0.27: 530番のような「片側だけ灰色」の単独カード帯も拾う。
       hits[y]=whole>.60 || left>.60 || right>.60;
     }
     const bands=[];
@@ -1025,7 +1137,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         s=last=null;
       }
     }
-    // v0.26: 灰色ヘッダーの下に「画面中央の縦罫線」が続くかを測る。
+    // v0.27: 灰色ヘッダーの下に「画面中央の縦罫線」が続くかを測る。
     // 450/501のような横長1台は中央罫線がほぼ無く、451/452のような左右2台行は中央罫線が濃い。
     for (let i=0;i<bands.length;i++) {
       const b=bands[i];
@@ -1188,7 +1300,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const pitch=Math.round(median(diffs)||298);
 
     // 固定台番プロファイルだけ旧来の固定補完を使う。
-    // v0.26: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
+    // v0.27: マイジャグVも動的台番化したため、現在はゴージャグ3と同じ実在カード基準へ進む。
     if (C.getProfile().fixedMachines) {
       for (const r of rows) {
         const l=r.left?.machine ?? null, rr=r.right?.machine ?? null;
@@ -1207,7 +1319,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
     } else {
-      // v0.26: 台番は「同じ物理カード位置」に直接ひも付ける。
+      // v0.27: 台番は「同じ物理カード位置」に直接ひも付ける。
       // 完全に台番を落とした行は、前後アンカーが連番として一致する場合だけ補完する。
       // 470→481のような台番ジャンプは絶対に471/472へ変換しない。
       const bandHasBack=(band)=>allWords.some(w=>
@@ -1220,7 +1332,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         r._hasBody=bodyLooksLikeMachineRow(allWords,bands,i,width,height,pitch);
         if (!r._hasBody) continue;
         const hasBack=bandHasBack(band);
-        // v0.26: 「戻る」のOCR成否に依存せず、中央罫線の有無で横長1台を判定。
+        // v0.27: 「戻る」のOCR成否に依存せず、中央罫線の有無で横長1台を判定。
         // 0.26未満なら中央の左右分割線が弱い＝450/501型の1台カード。
         r._singleFull=!!(band.fullGray && (band.centerDividerRatio ?? 1) < .26);
         r._singleLeft=!!(!r._singleFull && band.leftGray && !band.rightGray);
@@ -1247,7 +1359,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
 
-      // v0.26: 左右2台行で両方のOCR台番が読めても連番でない場合は整合性を修正する。
+      // v0.27: 左右2台行で両方のOCR台番が読めても連番でない場合は整合性を修正する。
       // 例: 489を479と誤読し右側490が正しい場合、直前487/488から489/490へ戻す。
       for (let i=0;i<rows.length;i++) {
         const r=rows[i];
@@ -1346,7 +1458,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         if (Number.isInteger(m)) known.push({idx:i,machine:m});
       }
 
-      // v0.26: ページ先頭側だけ台番OCRを落とした場合の逆向き救済。
+      // v0.27: ページ先頭側だけ台番OCRを落とした場合の逆向き救済。
       // 例: 450(横長),451,452 が読めず 453 が最初のアンカーでも、
       // その上に「実データカード」が3スロット実在していれば 450/451/452 と復元する。
       // 画像にカード自体がない番号は作らない。先頭8スロット以内だけに限定して暴走を防ぐ。
@@ -1370,7 +1482,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         const sl=slots[i], m=rows[sl.row][sl.side]?.machine;
         if (Number.isInteger(m)) known.push({idx:i,machine:m});
       }
-      // v0.26: 連続する物理スロットの両端が、台番差とスロット差で完全一致する場合は、
+      // v0.27: 連続する物理スロットの両端が、台番差とスロット差で完全一致する場合は、
       // 中間スロットの誤読も含めて期待台番へ矯正する。
       // 例: 450, [410誤読], [空欄], 453 -> 450,451,452,453。
       // 470→481のように台番差とスロット差が一致しないジャンプは一切触らない。
@@ -1578,9 +1690,9 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     };
   }
 
-  // v0.26: スクロールを分割して撮った画像の重複部分で、469→479のように十の位だけ誤読するケースを除外。
+  // v0.27: スクロールを分割して撮った画像の重複部分で、469→479のように十の位だけ誤読するケースを除外。
   // 総G・BB・REGが完全一致し、台番差が10で、片方が画像上端の低品質カードだった場合だけ発動する。
-  // v0.26: 同じ百番台の中に410のような孤立誤読が残る場合を除外する。
+  // v0.27: 同じ百番台の中に410のような孤立誤読が残る場合を除外する。
   // 隣接台番差25以内を同一クラスタとみなし、1台だけの孤立クラスタは捨てる。
   // 450〜470→481〜490（差11）や501〜511→522〜530（差11）は同一クラスタとして維持する。
   function filterSparseMachineClusters(rows) {
@@ -1788,7 +1900,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     return {evidence:extractCardEvidence(words,d2), text:result.data.text||''};
   }
 
-  // v0.26: 画面上端カード向けの最終救済。
+  // v0.27: 画面上端カード向けの最終救済。
   // カード全体OCRで数値が混ざる場合に、総G・BB・REGを別々の小領域としてOCRする。
   async function retryCardFields(worker,file,d) {
     const img=await loadImageForPixels(file);
@@ -1970,6 +2082,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     const allText=[];
     const evidenceMap=new Map();
     const imageParses=[];
+    ocrCardRegions=new Map();
     const detectedTypes=new Set();
     const detectedMachineSet=new Set();
     try {
@@ -1999,8 +2112,8 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
             }
           } catch(e) { console.warn('precision header retry failed',e); }
         }
-        // v0.26: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
-        // v0.26: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
+        // v0.27: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
+        // v0.27: 画像の上端で切れている重複カードは台番OCRが1桁ずれることがある。
         // 後段の重複排除に使うため、各カードの「画像端からの距離」を証拠へ保存する。
         for (let ei=0;ei<parsed.evidence.length;ei++) {
           const d=parsed.cards[ei];
@@ -2011,7 +2124,14 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         // ゴージャグではここで台番レンジを補完しない。最終的な解決行だけで一覧を作る。
         parsed.physicalCardCount=countPhysicalCardSlots(parsed.words,bandsInfo);
         imageParses.push({file:selectedFiles[i],parsed});
-        for (const d of parsed.cards) detectedMachineSet.add(Number(d.machine));
+        for (const d of parsed.cards) {
+          detectedMachineSet.add(Number(d.machine));
+          const m=Number(d.machine);
+          if(Number.isInteger(m)){
+            if(!ocrCardRegions.has(m)) ocrCardRegions.set(m,[]);
+            ocrCardRegions.get(m).push({...d,imageIndex:i,imageWidth:bandsInfo.width,imageHeight:bandsInfo.height});
+          }
+        }
         for (const e of parsed.evidence) {
           if (!evidenceMap.has(e.machine)) evidenceMap.set(e.machine,[]);
           evidenceMap.get(e.machine).push(e);
@@ -2109,7 +2229,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         }
       }
 
-      // v0.26: それでも未解決の「画像上端6カード」だけ、3項目を個別OCRする。
+      // v0.27: それでも未解決の「画像上端6カード」だけ、3項目を個別OCRする。
       const fieldFallback=new Map();
       const fieldSeen=new Set();
       let fieldRetries=0;
@@ -2166,7 +2286,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
         if (row) rows.push(row);
       }
       let cleanedRows=removeLikelyOverlapMisreads(rows).filter(r=>Number(r.games)>0 && C.validateRow(r).valid);
-      // v0.26: OCR候補を増やした副作用で本文の数字が台番化することがある。
+      // v0.27: OCR候補を増やした副作用で本文の数字が台番化することがある。
       // その画像群で支配的な百番台だけを残し、144/260等の異常台番を除外する。
       const bandFiltered=filterDominantMachineBand(cleanedRows);
       cleanedRows=bandFiltered.rows;
@@ -2229,6 +2349,40 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     $('previewFullImage').src=previewUrls[index];
     $('imagePreviewTitle').textContent=`元スクショ ${index+1}/${previewUrls.length}`;
     $('imagePreviewDialog').showModal();
+  }
+  function drawMachineCrop() {
+    const regs=ocrCardRegions.get(Number(activeReviewMachine))||[];
+    const canvas=$('machineCropCanvas'), ctx=canvas.getContext('2d');
+    if(!regs.length){ canvas.width=500; canvas.height=220; ctx.fillStyle='#111'; ctx.fillRect(0,0,500,220); ctx.fillStyle='white'; ctx.font='24px sans-serif'; ctx.fillText('元画像なし',170,115); $('cropCount').textContent='0/0'; return; }
+    activeReviewRegionIndex=Math.max(0,Math.min(activeReviewRegionIndex,regs.length-1));
+    const reg=regs[activeReviewRegionIndex], src=previewUrls[reg.imageIndex];
+    $('cropCount').textContent=`${activeReviewRegionIndex+1}/${regs.length}`;
+    $('cropPrevBtn').disabled=regs.length<=1; $('cropNextBtn').disabled=regs.length<=1;
+    const img=new Image();
+    img.onload=()=>{
+      const cardH=Math.max(1,reg.yB-reg.yT), headerPad=Math.max(55,Math.min(130,cardH*.32));
+      const sx=Math.max(0,Math.floor(reg.xL-4)), sy=Math.max(0,Math.floor(reg.yT-headerPad));
+      const sw=Math.min(img.naturalWidth-sx,Math.ceil(reg.xR-reg.xL+8)), sh=Math.min(img.naturalHeight-sy,Math.ceil(reg.yB-sy));
+      canvas.width=Math.max(1,sw); canvas.height=Math.max(1,sh); ctx.clearRect(0,0,canvas.width,canvas.height); ctx.drawImage(img,sx,sy,sw,sh,0,0,sw,sh);
+    };
+    img.src=src;
+  }
+  function showMachineReview(machine) {
+    if(!ocrCardRegions.has(Number(machine))){ toast('この台の元画像は現在のセッションにありません'); return; }
+    activeReviewMachine=Number(machine); activeReviewRegionIndex=0;
+    const r=rowFor(activeReviewMachine);
+    $('machineReviewTitle').textContent=`${activeReviewMachine}番 元画像確認`;
+    $('reviewMachineInput').value=activeReviewMachine; $('reviewGamesInput').value=r.games||0; $('reviewBbInput').value=r.bb||0; $('reviewRbInput').value=r.rb||0;
+    drawMachineCrop(); $('machineReviewDialog').showModal();
+  }
+  function applyMachineReview() {
+    const oldM=Number(activeReviewMachine), newM=Number($('reviewMachineInput').value);
+    if(!Number.isInteger(newM)||newM<1||newM>999) return toast('台番を確認してください');
+    if(newM!==oldM && (currentRows.has(newM)||allCurrentMachines().includes(newM))) return toast(`台番${newM}はすでに存在します`);
+    let r={...rowFor(oldM),machine:oldM};
+    if(newM!==oldM){ currentRows.delete(oldM); r.machine=newM; currentRows.set(newM,r); if(ocrCardRegions.has(oldM)){const regs=ocrCardRegions.get(oldM);ocrCardRegions.delete(oldM);ocrCardRegions.set(newM,regs);} activeReviewMachine=newM; }
+    r.games=C.safeNum($('reviewGamesInput').value); r.bb=C.safeNum($('reviewBbInput').value); r.rb=C.safeNum($('reviewRbInput').value); r.certainty='ok'; setRow(r);
+    if(isDynamicMachineMode()) syncDynamicMachinesFromStore([...currentRows.keys()]); markUnsaved(); renderEntryTable(); $('machineReviewDialog').close(); toast(`${newM}番を修正しました`);
   }
 
   function setOcrProgress(status, percent) {
@@ -2409,19 +2563,65 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     $('ghStatus').innerHTML=`<strong>接続OK</strong>${owner}/${repo} に接続できました。<br>${githubPublicUrl()}`;
     toast('GitHub接続OK');
   }
+  function githubBackupPath(){
+    const p=String(cloudSettings.path||'data/history.json');
+    const dir=p.includes('/')?p.slice(0,p.lastIndexOf('/')):'data';
+    return `${dir}/history-backups.json`;
+  }
+  function githubBackupPublicUrl(){
+    const {owner,repo,branch}=cloudSettings;
+    return `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/${githubBackupPath().split('/').map(encodeURIComponent).join('/')}`;
+  }
+  async function putGithubText(path,text,message){
+    const {owner,repo,branch}=cloudSettings;
+    const apiPath=`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${String(path).split('/').map(encodeURIComponent).join('/')}`;
+    let sha=null;
+    try{ const cur=await githubApi(`${apiPath}?ref=${encodeURIComponent(branch)}`); sha=cur?.sha||null; }catch(e){ if(!/Not Found/i.test(e.message)) throw e; }
+    const body={message,content:utf8ToBase64(text),branch}; if(sha) body.sha=sha;
+    return githubApi(apiPath,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  }
+  async function saveGenerationBackup(previousPayload){
+    if(!previousPayload) return;
+    let pack={format:'nakatsu-venus-history-backups-v1',generations:[]};
+    try{ const res=await fetch(githubBackupPublicUrl()+`?t=${Date.now()}`,{cache:'no-store'}); if(res.ok){ const x=await res.json(); if(x?.format===pack.format) pack=x; } }catch{}
+    const prev=typeof previousPayload==='string'?JSON.parse(previousPayload):previousPayload;
+    pack.generations=[{savedAt:new Date().toISOString(),sourceUpdatedAt:prev.updatedAt||null,payload:prev},...(pack.generations||[])].slice(0,5);
+    await putGithubText(githubBackupPath(),JSON.stringify(pack,null,2),`Backup Venus history ${todayLocal()}`);
+  }
+  async function fetchGenerationBackups(){
+    const res=await fetch(githubBackupPublicUrl()+`?t=${Date.now()}`,{cache:'no-store'});
+    if(!res.ok) throw new Error('バックアップがまだありません');
+    const pack=await res.json(); if(pack.format!=='nakatsu-venus-history-backups-v1') throw new Error('バックアップ形式が違います'); return pack;
+  }
+  async function refreshBackupList(){
+    const pack=await fetchGenerationBackups(); const sel=$('ghBackupSelect');
+    sel.innerHTML=(pack.generations||[]).map((g,i)=>`<option value="${i}">${new Date(g.savedAt).toLocaleString('ja-JP')} ${g.sourceUpdatedAt?'（元 '+new Date(g.sourceUpdatedAt).toLocaleString('ja-JP')+'）':''}</option>`).join('')||'<option value="">なし</option>';
+    sel._pack=pack; toast(`${pack.generations?.length||0}世代読み込みました`);
+  }
+  async function restoreSelectedGeneration(){
+    let pack=$('ghBackupSelect')._pack; if(!pack) pack=await fetchGenerationBackups();
+    const i=Number($('ghBackupSelect').value||0), g=pack.generations?.[i]; if(!g) throw new Error('世代を選択してください');
+    if(!confirm('選択したバックアップをこの端末へ復元しますか？ 現在の端末履歴は置き換わります。')) return;
+    applyCloudPayload(g.payload);
+    if(isDynamicMachineMode()){const d=readStoreKey(storageKey()).days?.[$('dateInput').value]||[];syncDynamicMachinesFromStore(d.map(r=>r.machine));}
+    loadDay($('dateInput').value); renderHistory(); renderAnalysis(); renderCloudSettings();
+    toast('バックアップを端末へ復元しました。必要なら「今すぐクラウド同期」で確定してください');
+  }
   async function cloudUpload(silent=false) {
     captureCloudSettingsFromUi();
     const token=getGithubToken();
     if(!token){ if(!silent) toast('GitHub Tokenを入力してください'); return false; }
     const {owner,repo,branch,path}=cloudSettings;
     const apiPath=`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${String(path).split('/').map(encodeURIComponent).join('/')}`;
-    let sha=null;
+    let sha=null, previousText=null;
     try {
       const current=await githubApi(`${apiPath}?ref=${encodeURIComponent(branch)}`);
       sha=current?.sha || null;
+      if(current?.content) previousText=base64ToUtf8(current.content);
     } catch(e) {
       if(!/Not Found/i.test(e.message)) throw e;
     }
+    if(previousText){ try{ await saveGenerationBackup(previousText); }catch(e){ console.warn('generation backup failed',e); } }
     const payload=buildCloudPayload();
     const body={ message:`Update Venus history ${todayLocal()}`, content:utf8ToBase64(JSON.stringify(payload,null,2)), branch };
     if(sha) body.sha=sha;
@@ -2587,12 +2787,19 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>switchView(t.dataset.view)));
     $('dateInput').addEventListener('change',e=>loadDay(e.target.value));
     $('machineTypeSelect').addEventListener('change',e=>setMachineType(e.target.value));
-    $('saveDayBtn').addEventListener('click',saveCurrentDay);
+    $('saveDayBtn').addEventListener('click',()=>saveCurrentDay(false));
+    $('saveCheckCloseBtn').addEventListener('click',()=>$('saveCheckDialog').close());
+    $('saveCheckBackBtn').addEventListener('click',()=>$('saveCheckDialog').close());
+    $('saveCheckForceBtn').addEventListener('click',()=>{ $('saveCheckDialog').close(); saveCurrentDay(true); });
+    $('machineReviewCloseBtn').addEventListener('click',()=>$('machineReviewDialog').close());
+    $('cropPrevBtn').addEventListener('click',()=>{const a=ocrCardRegions.get(Number(activeReviewMachine))||[];if(a.length){activeReviewRegionIndex=(activeReviewRegionIndex-1+a.length)%a.length;drawMachineCrop();}});
+    $('cropNextBtn').addEventListener('click',()=>{const a=ocrCardRegions.get(Number(activeReviewMachine))||[];if(a.length){activeReviewRegionIndex=(activeReviewRegionIndex+1)%a.length;drawMachineCrop();}});
+    $('applyMachineReviewBtn').addEventListener('click',applyMachineReview);
     $('clearDayBtn').addEventListener('click',clearDay);
     $('precisionOcr').checked = appSettings.highPrecisionOcr !== false;
     $('precisionOcr').addEventListener('change',e=>{ appSettings.highPrecisionOcr=!!e.target.checked; saveSettings(); toast(e.target.checked?'高精度モードON':'高精度モードOFF'); });
     $('imageInput').addEventListener('change',e=>{
-      selectedFiles=Array.from(e.target.files||[]); $('runOcrBtn').disabled=!selectedFiles.length;
+      selectedFiles=Array.from(e.target.files||[]); ocrCardRegions=new Map(); $('runOcrBtn').disabled=!selectedFiles.length;
       renderSelectedPreviews();
       if (selectedFiles.length) toast(`${selectedFiles.length}枚選択しました・画像を画面に表示しました`);
     });
@@ -2608,6 +2815,8 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     $('ghSyncBtn').addEventListener('click',()=>cloudUpload(false).catch(e=>toast('同期失敗: '+e.message)));
     $('ghRestoreBtn').addEventListener('click',()=>cloudRestore().catch(e=>toast('復元失敗: '+e.message)));
     $('ghCopyUrlBtn').addEventListener('click',copyPublicHistoryUrl);
+    $('ghBackupRefreshBtn').addEventListener('click',()=>refreshBackupList().catch(e=>toast('バックアップ取得失敗: '+e.message)));
+    $('ghBackupRestoreBtn').addEventListener('click',()=>restoreSelectedGeneration().catch(e=>toast('バックアップ復元失敗: '+e.message)));
     ['ghOwner','ghRepo','ghBranch','ghPath','ghToken','ghRememberToken','ghAutoSync'].forEach(id=>$(id).addEventListener('change',()=>{ captureCloudSettingsFromUi(); renderCloudSettings(); }));
     $('exportCsvBtn').addEventListener('click',exportCsv);
     $('restoreInput').addEventListener('change',e=>{ if(e.target.files[0]) restoreJson(e.target.files[0]); e.target.value=''; });
