@@ -121,6 +121,19 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 .machine-picker { display:grid; grid-template-columns:auto 1fr; gap:10px; align-items:center; }
 .machine-picker label { font-weight:800; }
 .machine-picker .mode-hint { grid-column:1 / -1; color:var(--muted); font-size:11px; line-height:1.5; }
+.machine-history-head { display:grid; grid-template-columns:minmax(0,1fr) minmax(180px,.9fr); gap:12px; align-items:start; }
+.machine-history-head .section-head { margin:0; }
+.machine-history-controls { display:grid; gap:8px; }
+.machine-summary-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.machine-summary-card { border:1px solid var(--line); border-radius:12px; padding:9px 10px; background:rgba(255,255,255,.025); min-width:0; }
+.machine-summary-card .summary-title { display:flex; align-items:baseline; justify-content:space-between; gap:6px; margin-bottom:6px; }
+.machine-summary-card .summary-title strong { font-size:12px; }
+.machine-summary-card .summary-title small { color:var(--muted); font-size:9px; white-space:nowrap; }
+.machine-summary-rates { display:grid; grid-template-columns:1fr 1fr; gap:4px 8px; font-size:10px; line-height:1.35; }
+.machine-summary-rates span { min-width:0; }
+.machine-summary-rates b { display:block; font-size:12px; color:var(--text); white-space:nowrap; }
+.machine-summary-rates .combined { grid-column:1 / -1; border-top:1px solid var(--line); padding-top:4px; margin-top:1px; }
+.machine-summary-rates .combined b { font-size:14px; color:var(--accent2); }
 .cloud-grid { display:grid; gap:10px; }
 .cloud-grid .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
 .cloud-status { padding:10px 12px; border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.03); font-size:12px; line-height:1.55; word-break:break-all; }
@@ -160,7 +173,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 .crop-nav button { flex:1; }
 .backup-tools { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:end; }
 .backup-tools select { min-width:0; }
-@media (max-width:650px){ .machine-review-grid{grid-template-columns:1fr;} .backup-tools{grid-template-columns:1fr;} }
+@media (max-width:650px){ .machine-review-grid{grid-template-columns:1fr;} .backup-tools{grid-template-columns:1fr;} .machine-history-head{grid-template-columns:1fr;} .machine-history-controls{grid-template-columns:120px minmax(0,1fr);align-items:start;} .machine-summary-grid{grid-template-columns:1fr 1fr;} .machine-summary-card{padding:8px;} .machine-summary-rates{gap:3px 6px;} }
 
 @media (min-width:700px) {
   .summary-grid { grid-template-columns:repeat(4,1fr); }
@@ -174,7 +187,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.27</div>
+      <div class="eyebrow">VENUS GALLERY NAKATSU · v0.28</div>
       <h1 id="machineTitle">マイジャグV 分析</h1>
     </div>
     <button id="installBtn" class="ghost hidden">ホームに追加</button>
@@ -310,12 +323,17 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       </section>
 
       <section class="panel">
-        <div class="section-head inline">
-          <div>
-            <h2>台番別傾向</h2>
-            <p>蓄積データから過去の4以上期待度を集計</p>
+        <div class="machine-history-head">
+          <div class="section-head">
+            <div>
+              <h2>台番別傾向</h2>
+              <p>蓄積データから過去の4以上期待度を集計</p>
+            </div>
           </div>
-          <select id="historyMachineSelect"></select>
+          <div class="machine-history-controls">
+            <select id="historyMachineSelect"></select>
+            <div id="machineHistorySummary" class="machine-summary-grid" aria-live="polite"></div>
+          </div>
         </div>
         <div id="machineHistory" class="machine-history empty">台番を選ぶと表示されます。</div>
       </section>
@@ -2449,6 +2467,46 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
     renderMachineHistory(); renderTomorrowCandidates();
   }
 
+  function aggregateMachineRows(records) {
+    const totals = records.reduce((a,x)=>{
+      a.games += C.safeNum(x.row.games);
+      a.bb += C.safeNum(x.row.bb);
+      a.rb += C.safeNum(x.row.rb);
+      return a;
+    }, {games:0,bb:0,rb:0});
+    return {
+      ...totals,
+      bbRate: totals.bb > 0 ? totals.games / totals.bb : null,
+      rbRate: totals.rb > 0 ? totals.games / totals.rb : null,
+      combined: (totals.bb + totals.rb) > 0 ? totals.games / (totals.bb + totals.rb) : null,
+    };
+  }
+
+  function renderMachineHistorySummary(machine, records) {
+    const box = $('machineHistorySummary');
+    if (!box) return;
+    if (!records.length) { box.innerHTML = ''; return; }
+    const latestDate = new Date(`${records[records.length-1].date}T00:00:00`);
+    const weekStart = new Date(latestDate); weekStart.setDate(weekStart.getDate()-6);
+    const week = records.filter(x => new Date(`${x.date}T00:00:00`) >= weekStart);
+    const groups = [
+      {label:'直近7日', rows:week},
+      {label:'全期間', rows:records},
+    ];
+    box.innerHTML = groups.map(g=>{
+      const a=aggregateMachineRows(g.rows);
+      const days=g.rows.length;
+      return `<div class="machine-summary-card">
+        <div class="summary-title"><strong>${g.label}</strong><small>${days}日・${a.games.toLocaleString()}G</small></div>
+        <div class="machine-summary-rates">
+          <span>BB<b>${formatRate(a.bbRate)}</b></span>
+          <span>REG<b>${formatRate(a.rbRate)}</b></span>
+          <span class="combined">合算<b>${formatRate(a.combined)}</b></span>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
   function renderMachineHistory() {
     const machine = Number($('historyMachineSelect').value || allCurrentMachines()[0] || 0);
     const store = loadStore(); const priors = getPriors();
@@ -2459,6 +2517,7 @@ dialog::backdrop { background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
       if (!row || !row.games) continue;
       const a = C.posterior(row, priors); if (a) records.push({date,row,a});
     }
+    renderMachineHistorySummary(machine, records);
     const box = $('machineHistory');
     box.className = records.length ? 'machine-history' : 'machine-history empty';
     if (!records.length) { box.textContent = 'この台の履歴はまだありません。'; return; }
