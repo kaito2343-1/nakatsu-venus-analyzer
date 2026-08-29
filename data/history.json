@@ -1,6 +1,6 @@
 {
   "format": "nakatsu-venus-public-history-v1",
-  "updatedAt": "2026-08-29T00:51:54.790Z",
+  "updatedAt": "2026-08-29T00:53:48.268Z",
   "app": "nakatsu-venus-analyzer",
   "sourcePage": "https://kaito2343-1.github.io/nakatsu-venus-analyzer/",
   "myjuggler5": {
@@ -4814,6 +4814,225 @@
           "games": 5229,
           "bb": 18,
           "rb": 15,
+          "certainty": "ok"
+        }
+      ],
+      "2026-08-26": [
+        {
+          "machine": 450,
+          "games": 5285,
+          "bb": 23,
+          "rb": 11,
+          "certainty": "ok"
+        },
+        {
+          "machine": 451,
+          "games": 1731,
+          "bb": 4,
+          "rb": 3,
+          "certainty": "ok"
+        },
+        {
+          "machine": 452,
+          "games": 4431,
+          "bb": 19,
+          "rb": 10,
+          "certainty": "ok"
+        },
+        {
+          "machine": 453,
+          "games": 7154,
+          "bb": 29,
+          "rb": 19,
+          "certainty": "ok"
+        },
+        {
+          "machine": 454,
+          "games": 5848,
+          "bb": 29,
+          "rb": 21,
+          "certainty": "ok"
+        },
+        {
+          "machine": 455,
+          "games": 1873,
+          "bb": 4,
+          "rb": 3,
+          "certainty": "ok"
+        },
+        {
+          "machine": 456,
+          "games": 2508,
+          "bb": 10,
+          "rb": 0,
+          "certainty": "ok"
+        },
+        {
+          "machine": 457,
+          "games": 2959,
+          "bb": 12,
+          "rb": 6,
+          "certainty": "ok"
+        },
+        {
+          "machine": 458,
+          "games": 6590,
+          "bb": 29,
+          "rb": 17,
+          "certainty": "ok"
+        },
+        {
+          "machine": 459,
+          "games": 4284,
+          "bb": 9,
+          "rb": 14,
+          "certainty": "ok"
+        },
+        {
+          "machine": 460,
+          "games": 3055,
+          "bb": 6,
+          "rb": 6,
+          "certainty": "ok"
+        },
+        {
+          "machine": 461,
+          "games": 4845,
+          "bb": 18,
+          "rb": 12,
+          "certainty": "ok"
+        },
+        {
+          "machine": 462,
+          "games": 3100,
+          "bb": 7,
+          "rb": 8,
+          "certainty": "ok"
+        },
+        {
+          "machine": 463,
+          "games": 4243,
+          "bb": 13,
+          "rb": 10,
+          "certainty": "ok"
+        },
+        {
+          "machine": 464,
+          "games": 3211,
+          "bb": 10,
+          "rb": 8,
+          "certainty": "ok"
+        },
+        {
+          "machine": 465,
+          "games": 3718,
+          "bb": 10,
+          "rb": 11,
+          "certainty": "ok"
+        },
+        {
+          "machine": 466,
+          "games": 8368,
+          "bb": 49,
+          "rb": 23,
+          "certainty": "ok"
+        },
+        {
+          "machine": 467,
+          "games": 1965,
+          "bb": 8,
+          "rb": 5,
+          "certainty": "ok"
+        },
+        {
+          "machine": 468,
+          "games": 5084,
+          "bb": 23,
+          "rb": 12,
+          "certainty": "ok"
+        },
+        {
+          "machine": 469,
+          "games": 1990,
+          "bb": 6,
+          "rb": 4,
+          "certainty": "ok"
+        },
+        {
+          "machine": 470,
+          "games": 3029,
+          "bb": 3,
+          "rb": 7,
+          "certainty": "ok"
+        },
+        {
+          "machine": 481,
+          "games": 4668,
+          "bb": 16,
+          "rb": 11,
+          "certainty": "ok"
+        },
+        {
+          "machine": 482,
+          "games": 5548,
+          "bb": 28,
+          "rb": 14,
+          "certainty": "ok"
+        },
+        {
+          "machine": 483,
+          "games": 3774,
+          "bb": 12,
+          "rb": 11,
+          "certainty": "ok"
+        },
+        {
+          "machine": 484,
+          "games": 4992,
+          "bb": 16,
+          "rb": 17,
+          "certainty": "ok"
+        },
+        {
+          "machine": 485,
+          "games": 2214,
+          "bb": 7,
+          "rb": 7,
+          "certainty": "ok"
+        },
+        {
+          "machine": 486,
+          "games": 6779,
+          "bb": 30,
+          "rb": 27,
+          "certainty": "ok"
+        },
+        {
+          "machine": 487,
+          "games": 2901,
+          "bb": 13,
+          "rb": 2,
+          "certainty": "ok"
+        },
+        {
+          "machine": 488,
+          "games": 3026,
+          "bb": 11,
+          "rb": 11,
+          "certainty": "ok"
+        },
+        {
+          "machine": 489,
+          "games": 4524,
+          "bb": 23,
+          "rb": 13,
+          "certainty": "ok"
+        },
+        {
+          "machine": 490,
+          "games": 2216,
+          "bb": 3,
+          "rb": 5,
           "certainty": "ok"
         }
       ]
