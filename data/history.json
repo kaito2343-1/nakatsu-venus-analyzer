@@ -1,6 +1,6 @@
 {
   "format": "nakatsu-venus-public-history-v1",
-  "updatedAt": "2026-09-12T02:17:47.876Z",
+  "updatedAt": "2026-09-12T02:21:38.335Z",
   "app": "nakatsu-venus-analyzer",
   "sourcePage": "https://kaito2343-1.github.io/nakatsu-venus-analyzer/",
   "myjuggler5": {
@@ -7435,6 +7435,281 @@
           "games": 6709,
           "bb": 22,
           "rb": 18,
+          "certainty": "ok"
+        }
+      ],
+      "2026-09-08": [
+        {
+          "machine": 431,
+          "games": 3595,
+          "bb": 8,
+          "rb": 9,
+          "certainty": "ok"
+        },
+        {
+          "machine": 432,
+          "games": 6486,
+          "bb": 23,
+          "rb": 17,
+          "certainty": "ok"
+        },
+        {
+          "machine": 433,
+          "games": 6508,
+          "bb": 24,
+          "rb": 14,
+          "certainty": "ok"
+        },
+        {
+          "machine": 434,
+          "games": 3364,
+          "bb": 14,
+          "rb": 5,
+          "certainty": "ok"
+        },
+        {
+          "machine": 435,
+          "games": 8948,
+          "bb": 46,
+          "rb": 29,
+          "certainty": "ok"
+        },
+        {
+          "machine": 436,
+          "games": 3395,
+          "bb": 14,
+          "rb": 8,
+          "certainty": "ok"
+        },
+        {
+          "machine": 437,
+          "games": 4153,
+          "bb": 17,
+          "rb": 5,
+          "certainty": "ok"
+        },
+        {
+          "machine": 438,
+          "games": 5937,
+          "bb": 26,
+          "rb": 15,
+          "certainty": "ok"
+        },
+        {
+          "machine": 439,
+          "games": 3324,
+          "bb": 12,
+          "rb": 5,
+          "certainty": "ok"
+        },
+        {
+          "machine": 440,
+          "games": 6566,
+          "bb": 31,
+          "rb": 13,
+          "certainty": "ok"
+        },
+        {
+          "machine": 451,
+          "games": 6922,
+          "bb": 29,
+          "rb": 16,
+          "certainty": "ok"
+        },
+        {
+          "machine": 452,
+          "games": 1416,
+          "bb": 4,
+          "rb": 1,
+          "certainty": "ok"
+        },
+        {
+          "machine": 453,
+          "games": 5661,
+          "bb": 24,
+          "rb": 12,
+          "certainty": "ok"
+        },
+        {
+          "machine": 454,
+          "games": 5391,
+          "bb": 20,
+          "rb": 17,
+          "certainty": "ok"
+        },
+        {
+          "machine": 455,
+          "games": 5545,
+          "bb": 13,
+          "rb": 12,
+          "certainty": "ok"
+        },
+        {
+          "machine": 456,
+          "games": 2504,
+          "bb": 8,
+          "rb": 4,
+          "certainty": "ok"
+        },
+        {
+          "machine": 457,
+          "games": 3671,
+          "bb": 11,
+          "rb": 14,
+          "certainty": "ok"
+        },
+        {
+          "machine": 458,
+          "games": 4258,
+          "bb": 12,
+          "rb": 12,
+          "certainty": "ok"
+        },
+        {
+          "machine": 459,
+          "games": 4472,
+          "bb": 15,
+          "rb": 19,
+          "certainty": "ok"
+        },
+        {
+          "machine": 460,
+          "games": 6716,
+          "bb": 29,
+          "rb": 12,
+          "certainty": "ok"
+        },
+        {
+          "machine": 461,
+          "games": 4849,
+          "bb": 12,
+          "rb": 13,
+          "certainty": "ok"
+        },
+        {
+          "machine": 462,
+          "games": 2876,
+          "bb": 7,
+          "rb": 8,
+          "certainty": "ok"
+        },
+        {
+          "machine": 463,
+          "games": 5304,
+          "bb": 18,
+          "rb": 14,
+          "certainty": "ok"
+        },
+        {
+          "machine": 464,
+          "games": 3830,
+          "bb": 12,
+          "rb": 10,
+          "certainty": "ok"
+        },
+        {
+          "machine": 465,
+          "games": 2982,
+          "bb": 9,
+          "rb": 10,
+          "certainty": "ok"
+        },
+        {
+          "machine": 466,
+          "games": 7322,
+          "bb": 35,
+          "rb": 31,
+          "certainty": "ok"
+        },
+        {
+          "machine": 467,
+          "games": 6498,
+          "bb": 28,
+          "rb": 12,
+          "certainty": "ok"
+        },
+        {
+          "machine": 468,
+          "games": 4547,
+          "bb": 13,
+          "rb": 14,
+          "certainty": "ok"
+        },
+        {
+          "machine": 469,
+          "games": 5511,
+          "bb": 22,
+          "rb": 13,
+          "certainty": "ok"
+        },
+        {
+          "machine": 470,
+          "games": 6487,
+          "bb": 23,
+          "rb": 19,
+          "certainty": "ok"
+        },
+        {
+          "machine": 481,
+          "games": 3661,
+          "bb": 15,
+          "rb": 5,
+          "certainty": "ok"
+        },
+        {
+          "machine": 482,
+          "games": 4776,
+          "bb": 19,
+          "rb": 14,
+          "certainty": "ok"
+        },
+        {
+          "machine": 483,
+          "games": 7183,
+          "bb": 31,
+          "rb": 24,
+          "certainty": "ok"
+        },
+        {
+          "machine": 484,
+          "games": 4416,
+          "bb": 18,
+          "rb": 7,
+          "certainty": "ok"
+        },
+        {
+          "machine": 485,
+          "games": 2678,
+          "bb": 6,
+          "rb": 7,
+          "certainty": "ok"
+        },
+        {
+          "machine": 486,
+          "games": 3363,
+          "bb": 10,
+          "rb": 10,
+          "certainty": "ok"
+        },
+        {
+          "machine": 487,
+          "games": 3085,
+          "bb": 12,
+          "rb": 4,
+          "certainty": "ok"
+        },
+        {
+          "machine": 488,
+          "games": 4497,
+          "bb": 14,
+          "rb": 16,
+          "certainty": "ok"
+        },
+        {
+          "machine": 489,
+          "games": 3363,
+          "bb": 8,
+          "rb": 9,
           "certainty": "ok"
         }
       ]
